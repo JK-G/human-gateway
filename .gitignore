@@ -1,0 +1,25 @@
+# Local checks that must never reach a remote
+.local/
+
+# Language tooling
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Claude Code, per user
+.claude/settings.local.json
+.claude/state/
+
+# OS and editors
+.DS_Store
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.lock-tmp

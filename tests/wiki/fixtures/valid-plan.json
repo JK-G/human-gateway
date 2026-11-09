@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "op": "ingest",
+  "created_at": "2026-01-20T09:12:00Z",
+  "source": "vault/raw/acme-notes/meetings/example--2026-01-15-kickoff.md",
+  "source_hash": "RECOMPUTE",
+  "target_project": "acme-notes",
+  "edits": [
+    {
+      "op": "add_source_ref",
+      "page": "vault/wiki/concepts/example--acme-notes-offline-sync.md",
+      "values": ["raw/acme-notes/meetings/example--2026-01-15-kickoff.md"],
+      "rationale": "The kickoff is where offline sync was scoped; record it as a source of the concept page.",
+      "confidence": 0.95
+    }
+  ],
+  "new_pages": [
+    {
+      "page": "vault/wiki/research/acme-notes--prototype-offline-dropout.md",
+      "type": "research",
+      "frontmatter": {
+        "type": "research",
+        "project": "acme-notes",
+        "temporal": "living",
+        "status": "active",
+        "last_verified": "2026-01-20",
+        "sources": ["raw/acme-notes/meetings/example--2026-01-15-kickoff.md"],
+        "aliases": ["prototype dropout", "offline dropout"],
+        "summary": "Most prototype testers who quit did so because notes did not open without a connection.",
+        "tags": ["retention"]
+      },
+      "body": "# Prototype offline dropout\n\n## Finding\n\nIn the prototype round 11 of 24 testers stopped within a week; the most common reason was that notes did not open offline.\n\n## Evidence\n\n- Kickoff, 2026-01-15: tester feedback summarized by the PM.\n- Related: [[example--acme-notes-offline-sync]]\n"
+    }
+  ],
+  "skipped": []
+}

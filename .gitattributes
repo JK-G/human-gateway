@@ -1,0 +1,8 @@
+# Shell and Python scripts break on CRLF, and they are authored on Windows and run on macOS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.pptx binary

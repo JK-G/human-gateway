@@ -1,0 +1,25 @@
+# aliases-seed.yml: entity and fact resolution seed.
+#
+# Read by /hg:ingest and /hg:wiki-query (wiki-librarian): maps names found in a source to existing
+# pages, so a new source updates the right page instead of creating a near-duplicate.
+#
+# Shape:
+#   entities:
+#     <entity-slug>:
+#       page: <path relative to vault/>      # the page that represents this entity
+#       aliases: [<name>, ...]               # case-insensitive names that mean this entity
+#   facts:
+#     <fact-slug>:                           # must also appear in canonical_page's canonical_for
+#       canonical_page: <path relative to vault/>
+#       patterns: [<phrase>, ...]            # case-insensitive phrases that restate the fact
+#
+# Curating it:
+#   - Add an entity when two names for the same thing show up in sources (product codename vs
+#     marketing name, abbreviation vs full name, other-language forms).
+#   - Add a fact when a number or rule (a limit, a price, a policy) starts being copied across
+#     pages. Choose patterns specific enough not to match ordinary prose.
+#   - Slugs: lowercase kebab-case, at most 60 chars. Keep this file small and reviewed.
+
+entities: {}
+
+facts: {}

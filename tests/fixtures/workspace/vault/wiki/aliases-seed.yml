@@ -1,0 +1,45 @@
+# aliases-seed.yml: entity and fact resolution seed.
+#
+# Read by:
+#   - /ingest (wiki-librarian): maps names found in a source to existing pages, so a new
+#     source updates the right page instead of creating a near-duplicate.
+#   - .claude/tools/lint-atomicity.sh: the uncanonical_restate check. A page that matches a
+#     fact pattern below, without linking or transcluding the canonical page, gets a WARN.
+#
+# Shape:
+#   entities:
+#     <entity-slug>:
+#       page: <path relative to vault/>      # the page that represents this entity
+#       aliases: [<name>, ...]               # case-insensitive names that mean this entity
+#   facts:
+#     <fact-slug>:                           # must also appear in canonical_page's canonical_for
+#       canonical_page: <path relative to vault/>
+#       patterns: [<phrase>, ...]            # case-insensitive phrases that restate the fact
+#
+# Curating it:
+#   - Add an entity when two names for the same thing show up in sources (product codename vs
+#     marketing name, abbreviation vs full name, other-language forms).
+#   - Add a fact when a number or rule (a limit, a price, a policy) starts being copied across
+#     pages. Choose patterns specific enough not to match ordinary prose.
+#   - Slugs: lowercase kebab-case, at most 60 chars. Keep this file small and reviewed: every
+#     pattern is a lint rule.
+#   - Optional bootstrap: list the H2/H3 headings of a PRD and turn the stable nouns into entities.
+#
+# Everything below is the fictional "Acme Notes" example. Entries tagged with a kit:example
+# comment are stripped by scripts/init.sh --remove-examples (or delete them by hand).
+
+entities:
+  # kit:example
+  acme-notes:
+    page: projects/acme-notes/PRD.md
+    aliases: ["acme notes", "acme", "the notes app"]
+  # kit:example
+  acme-notes-offline-sync:
+    page: wiki/concepts/example--acme-notes-offline-sync.md
+    aliases: ["offline sync", "offline mode", "sync engine", "local-first sync"]
+
+facts:
+  # kit:example
+  acme-notes-sync-conflict-policy:
+    canonical_page: wiki/concepts/example--acme-notes-offline-sync.md
+    patterns: ["field-level merge", "conflict copy", "last writer wins"]

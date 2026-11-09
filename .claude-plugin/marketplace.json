@@ -1,0 +1,12 @@
+{
+  "name": "human-gateway",
+  "owner": { "name": "JK-G" },
+  "description": "Human Gateway: a department's knowledge in git, with approvals that reopen when their inputs change.",
+  "plugins": [
+    {
+      "name": "hg",
+      "source": "./plugins/hg",
+      "description": "Department workspace with a validated wiki, daily notes and approval gates."
+    }
+  ]
+}

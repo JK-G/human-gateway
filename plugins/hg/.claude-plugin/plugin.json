@@ -1,0 +1,6 @@
+{
+  "name": "hg",
+  "description": "Department workspace with a validated wiki, daily notes and approval gates.",
+  "author": { "name": "JK-G" },
+  "license": "MIT"
+}

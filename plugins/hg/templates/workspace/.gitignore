@@ -1,0 +1,24 @@
+# Personal notes and files waiting for a scan stay on this machine.
+vault/daily/*
+!vault/daily/README.md
+intake/*
+!intake/README.md
+
+# Generated per person
+DASHBOARD.md
+.gateway/
+
+# Claude Code, per person
+.claude/state/
+.claude/settings.local.json
+
+# Obsidian settings differ per device
+vault/.obsidian/
+
+# Secrets
+.env
+.env.*
+*.env
+*.pem
+*.p12
+*.pfx

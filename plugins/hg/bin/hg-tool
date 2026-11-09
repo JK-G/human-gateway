@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# hg-tool - single entry point for the hg plugin's tools.
+#
+# Skills call it by name (the plugin's bin/ is on the Bash tool's PATH). Hooks call it through
+# ${CLAUDE_PLUGIN_ROOT}/bin/hg-tool. It is called as `bash .../hg-tool` from hooks, so hooks do
+# not depend on the executable bit.
+#
+# Hook subcommands exit 0 before Python starts when the project has no .claude/hg.json, so the
+# plugin stays silent outside a department repo.
+#
+# Python is found once per machine and remembered, because starting it twice on every tool call
+# is noticeable on Windows. The Microsoft Store placeholder for python3 fails the version probe.
+
+set -u
+
+usage() {
+  cat >&2 <<'EOF'
+usage: hg-tool <command> [args]
+  guard-write | guard-bash | journal | session-start   hook entry points
+  dashboard                            refresh DASHBOARD.md (hook, silent)
+  today-data                           facts for /hg:today and /hg:dayend, as JSON
+  doctor [--root DIR]                  health check of this workspace
+  setup [--root DIR] [--name N] [--language L] [--timezone Z] [--marketplace owner/repo] [--project slug]
+                                       create the department workspace; never overwrites a file
+  setup [--root DIR] --refresh-scan    replace .github/hg/scan.py with the plugin's scanner
+  scan [--json] [--git] [--config FILE] [PATH ...]
+                                       find secrets, personal data and files that stay links
+  log --op <op> --agent <id> [...]     append to the event log
+  gate new|list|approve|note [...]     approvals that reopen when their inputs change
+  conf KEY | conf --sh                 read .claude/hg.json
+  conf-set readers "role, role"        save who may read this repo, as roles
+  conf-set project <slug>              add a project to .claude/hg.json
+  raw-add <file> --project P --kind K --date YYYY-MM-DD --slug S
+                                       bring one file into vault/raw/; never overwrites
+  registry [--root DIR] <subcommand>   projects, types, frontmatter, dump
+  canonicalize [--hash] <file>         canonical form of a page, or its hash
+  sha1 <file>                          plain sha1 of a file's bytes
+  plan-name <file>                     rename a change plan after its hash, print the new path
+  validate-plan [...] <plan.json>      check a wiki change plan
+  validate-frontmatter [...] [PATH]    check wiki pages
+  index [--root DIR] [--check]         regenerate the wiki index
+  lock <acquire|release|status> <name> take or release a named lock
+  python-cmd                           print the Python command in use
+EOF
+  exit 2
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+  guard-write|guard-bash|journal|session-start|dashboard) is_hook=1 ;;
+  *) is_hook=0 ;;
+esac
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+if [ "$is_hook" = 1 ] && [ ! -f "$ROOT/.claude/hg.json" ]; then
+  exit 0
+fi
+
+# Hooks run on every tool call and each subshell costs tens of milliseconds on Windows, so the
+# path is built without one whenever this script was called by an absolute path.
+self="${BASH_SOURCE[0]}"
+case "$self" in
+  /*|[A-Za-z]:*) TOOLS="${self%/*}/../tools" ;;
+  *) TOOLS="$(cd "$(dirname "$self")/../tools" && pwd)" ;;
+esac
+# Everything but a hook gets the native form, because a branch below may switch off Git Bash's rewriting.
+if [ "$is_hook" = 0 ]; then
+  TOOLS="$(cd "$TOOLS" && { pwd -W 2>/dev/null || pwd; })"
+fi
+export HG_TOOLS="$TOOLS"
+
+detect_python() {
+  local c
+  case "${OSTYPE:-}" in
+    msys*|cygwin*) set -- "python" "py -3" "python3" ;;
+    *) set -- "python3" "python" ;;
+  esac
+  for c in "$@"; do
+    if $c -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+  return 1
+}
+
+cache="${CLAUDE_PLUGIN_DATA:-${HOME:-.}/.cache/hg}/python-cmd"
+if [ -z "${HG_PYTHON:-}" ] && [ -r "$cache" ]; then
+  IFS= read -r HG_PYTHON < "$cache" || HG_PYTHON=""
+fi
+if [ -z "${HG_PYTHON:-}" ]; then
+  HG_PYTHON="$(detect_python)" || HG_PYTHON=""
+  if [ -n "$HG_PYTHON" ] && mkdir -p "$(dirname "$cache")" 2>/dev/null; then
+    printf '%s\n' "$HG_PYTHON" > "$cache" 2>/dev/null
+  fi
+fi
+export HG_PYTHON
+
+if [ -z "$HG_PYTHON" ]; then
+  echo "hg-tool: Python 3.9 or newer was not found. Run /hg:setup." >&2
+  [ "$is_hook" = 1 ] && exit 0
+  exit 3
+fi
+
+case "$cmd" in
+  guard-write) exec $HG_PYTHON -S "$TOOLS/guard_write.py" "$@" ;;
+  guard-bash)
+    set +u
+    . "$TOOLS/guard-bash.sh"   # sourced, not run: a second bash start is the slowest part on Windows
+    ;;
+  journal) exec $HG_PYTHON -S "$TOOLS/journal_append.py" "$@" ;;
+  session-start) exec $HG_PYTHON -S "$TOOLS/session_start.py" "$@" ;;
+  today-data) exec $HG_PYTHON "$TOOLS/today_data.py" "$@" ;;
+  doctor) exec $HG_PYTHON "$TOOLS/doctor.py" "$@" ;;
+  log)
+    # Free text in --note must reach Python unchanged: Git Bash rewrites anything path-like.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/log_append.py" "$@"
+    ;;
+  gate)
+    # --request, --title and --text are free text, and --input may be D:\x, D:/x or /d/x.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/gate.py" "$@"
+    ;;
+  dashboard) exec $HG_PYTHON "$TOOLS/dashboard.py" "$@" ;;
+  setup)
+    # --name is free text and --root may be D:\x, D:/x or /d/x: the tool normalizes it itself.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/setup_workspace.py" "$@"
+    ;;
+  scan)
+    # A PATH may be D:\x, D:/x or /d/x: the tool normalizes it itself.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/scan.py" "$@"
+    ;;
+  conf-set)
+    # The value is free text: Git Bash would rewrite a role that looks like a path.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/conf_set.py" "$@"
+    ;;
+  raw-add)
+    # The file may be D:\x, D:/x or /d/x: the tool normalizes it itself.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/raw_add.py" "$@"
+    ;;
+  conf) exec $HG_PYTHON "$TOOLS/kit_registry.py" conf "$@" ;;
+  registry) exec $HG_PYTHON "$TOOLS/kit_registry.py" "$@" ;;
+  canonicalize) exec $HG_PYTHON "$TOOLS/canonicalize.py" "$@" ;;
+  sha1) exec $HG_PYTHON "$TOOLS/canonicalize.py" --sha1 "$@" ;;
+  plan-name) exec $HG_PYTHON "$TOOLS/canonicalize.py" --plan-name "$@" ;;
+  validate-plan) exec $HG_PYTHON "$TOOLS/validate_plan.py" "$@" ;;
+  validate-frontmatter) exec bash "$TOOLS/validate-frontmatter.sh" "$@" ;;
+  index) exec $HG_PYTHON "$TOOLS/regenerate-wiki-index.py" "$@" ;;
+  lock) exec bash "$TOOLS/routine-lock.sh" "$@" ;;
+  python-cmd) printf '%s\n' "$HG_PYTHON" ;;
+  help|-h|--help) usage ;;
+  *) echo "hg-tool: unknown command '$cmd'" >&2; usage ;;
+esac
