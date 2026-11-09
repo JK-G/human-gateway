@@ -93,6 +93,21 @@ bash_case 0 "cat <<EOF > /tmp/kit-guard-test
 rm -rf code/repo
 EOF"
 
+# cp, mv, install, ln and rsync: a Windows drive path is a destination, not a remote host
+case "$T" in
+  [A-Za-z]:*)
+    TB=$(printf '%s' "$T" | tr / '\\')
+    bash_case 2 "cp a.md $T/code/z"
+    bash_case 2 "mv a.md $T/vault/raw/x.md"
+    bash_case 2 "cp -t $T/code a.md"
+    bash_case 2 "install a.md $T/code/z"
+    bash_case 2 "rsync a.md $T/vault/raw/x.md"
+    bash_case 2 "mv a.md \"$TB\\code\\z\""
+    ;;
+esac
+bash_case 0 'rsync a.md user@backup:code/z'
+bash_case 0 'rsync a.md backup:vault/raw/x.md'
+
 # fail open on garbage, and the human bypass works
 printf '{garbage' | CLAUDE_PROJECT_DIR="$T" hg guard-bash >/dev/null 2>&1 && ok || bad "guard-bash must fail open on garbage"
 bash_payload 'rm -rf code/repo' "$T" | CLAUDE_PROJECT_DIR="$T" HG_GUARD_BYPASS=1 hg guard-bash >/dev/null 2>&1 && ok || bad "HG_GUARD_BYPASS=1 must allow"
@@ -140,6 +155,51 @@ if command -v cygpath >/dev/null 2>&1; then
   bash_case 2 'echo x > VAULT/RAW/x.md' "$W" "$W"
   bash_case 0 'cat vault/raw/x.md' "$W" "$W"
   bash_case 0 'echo x > vault/wiki/concepts/ok.md' "$W" "$W"
+fi
+
+# --- Windows 8.3 short names: one folder, two spellings ---------------------------------
+# The project dir, the cwd and the target can each arrive short (RUNNER~1) or long, in any mix.
+NAME83="department-workspace-long-name"
+if command -v cygpath >/dev/null 2>&1; then
+  B83="$(temp_dir hg-83)"
+  mkdir -p "$B83/$NAME83/.claude" "$B83/$NAME83/vault/raw" "$B83/$NAME83/vault/wiki" "$B83/$NAME83/code" "$B83/$NAME83/protected-archive-folder"
+  echo original > "$B83/$NAME83/vault/raw/x.md"
+  printf '{ "schemaVersion": 1, "paths": { "vault": "vault" }, "forbiddenWritePaths": ["code/", "vault/raw/", "protected-archive-folder/"] }\n' > "$B83/$NAME83/.claude/hg.json"
+  LP="$(cygpath -ml "$B83/$NAME83")"; SP="$(cygpath -ms "$B83/$NAME83")"
+  if [ "${SP##*/}" != "$NAME83" ]; then
+    SA="$(cygpath -ms "$LP/protected-archive-folder")"; SA="${SA##*/}"
+    SW="$(cygpath -w "$SP")"
+    bash_case 2 'rm vault/raw/x.md' "$SP" "$SP"
+    bash_case 2 'rm vault/raw/x.md' "$SP" "$LP"
+    bash_case 2 'rm vault/raw/x.md' "$LP" "$SP"
+    bash_case 2 "rm $SP/vault/raw/x.md" "$LP" "$LP"
+    bash_case 2 "rm $SP/vault/raw/x.md" "$SP" "$SP"
+    bash_case 2 "rm $LP/vault/raw/x.md" "$SP" "$SP"
+    bash_case 2 "rm \"$SW\\vault\\raw\\x.md\"" "$LP" "$LP"
+    bash_case 2 "echo x > $SP/code/not-created-yet/file" "$LP" "$LP"
+    bash_case 2 "cd $SP/code && git commit -m x" "$LP" "$LP"
+    bash_case 2 "rm $SA/a" "$LP" "$LP"
+    bash_case 2 'echo x > code/backup~1' "$LP" "$LP"
+    bash_case 0 'cat vault/raw/x.md' "$SP" "$SP"
+    bash_case 0 'echo x > vault/wiki/ok.md' "$SP" "$LP"
+    bash_case 0 'echo x > vault/wiki/backup~1.md' "$LP" "$LP"
+    bash_case 0 "echo x > C:/hg-no-such-folder~1/a" "$LP" "$LP"
+    write_case 2 Edit "$SP/vault/raw/x.md" "$LP" "$LP"
+    write_case 2 Edit "$SP/vault/raw/x.md" "$SP" "$SP"
+    write_case 2 Edit "$LP/vault/raw/x.md" "$SP" "$SP"
+    write_case 2 Edit "vault/raw/x.md" "$SP" "$LP"
+    write_case 2 Edit "$SW\\vault\\raw\\x.md" "$LP" "$LP"
+    write_case 2 Write "$SP/code/not-created-yet/file" "$LP" "$LP"
+    write_case 2 Write "$SA/a" "$LP" "$LP"
+    write_case 0 Write "$SP/vault/wiki/ok.md" "$LP" "$LP"
+    write_case 0 Write "$SP/vault/raw/new-source.md" "$LP" "$LP"
+    write_case 0 Write "C:/hg-no-such-folder~1/a" "$LP" "$LP"
+  else
+    echo "NOTE: 8.3 short names are off on the temp folder's drive, so the short-path guard cases did not run"
+  fi
+  rm -rf "$B83"
+else
+  echo "NOTE: no cygpath, so the Windows 8.3 short-path guard cases did not run"
 fi
 
 # --- silent outside a department repo ---------------------------------------------------

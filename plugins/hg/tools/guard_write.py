@@ -12,6 +12,8 @@ Blocks when the target, relative to the workspace root, falls under:
 
 Paths come in the shapes D:\x, D:/x, /d/x (Git Bash) and /x (macOS, Linux). All are normalized
 before matching, and on Windows the comparison ignores case. Paths outside the root pass.
+A Windows path with an 8.3 short name (RUNNER~1) is spelled out first. If an existing folder on it
+cannot be read, the guard cannot tell where the path leads and blocks.
 Fails open (exit 0) when the payload cannot be parsed.
 Human escape hatch: HG_GUARD_BYPASS=1 in the environment that launched Claude Code.
 """
@@ -56,6 +58,28 @@ def normalize(path, cwd):
         else:
             out.append(seg)
     return drive + "/" + "/".join(out)
+
+
+def long_form(path):
+    """A normalized Windows path with the 8.3 names of its existing folders spelled out. None if one cannot be read.
+
+    Only a path with a "~" pays for this. Every other shape is returned as it is.
+    """
+    if not WIN or "~" not in path:
+        return path
+    head, tail = path, ""
+    while not os.path.isdir(head):
+        parent = os.path.dirname(head)
+        if parent == head:
+            return path
+        tail = "/" + os.path.basename(head) + tail
+        head = parent
+    if "~" not in head:
+        return path
+    try:
+        return canon(str(Path(head).resolve(strict=True))) + tail
+    except OSError:
+        return None
 
 
 def fold(s):
@@ -110,7 +134,10 @@ def main():
 
     root = kr.kit_root()
     conf = kr.load_conf(root)
-    rel = relative(normalize(target, cwd or str(root)), root_forms(root))
+    full = long_form(normalize(target, cwd or str(root)))
+    if full is None:
+        return deny(tool, target, "cannot tell whether this short path is inside the workspace")
+    rel = relative(full, root_forms(root))
     if rel is None:
         return 0
 

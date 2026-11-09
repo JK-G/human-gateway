@@ -36,7 +36,7 @@ while IFS= read -r t; do
   rc=$?
   if [ "$rc" -eq 0 ]; then
     PASS=$((PASS + 1)); echo "PASS  $rel"
-    [ "$VERBOSE" = 1 ] && sed 's/^/      /' "$log"
+    if [ "$VERBOSE" = 1 ]; then sed 's/^/      /' "$log"; else grep '^NOTE: ' "$log" | sed 's/^/      /'; fi
   else
     FAIL=$((FAIL + 1)); FAILED="$FAILED $rel"; echo "FAIL  $rel (exit $rc)"
     sed 's/^/      /' "$log" | tail -n 40

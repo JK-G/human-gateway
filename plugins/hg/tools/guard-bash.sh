@@ -12,6 +12,8 @@
 # git checkout/restore of a forbidden path (git restore --staged touches only the index and passes),
 # or inline interpreter code (python -c, node -e, sh -c) that writes there. A path that merely
 # appears (find -not -path, grep pattern, cat, ls, cd) passes.
+# On Windows a path with an 8.3 short name (RUNNER~1) is spelled out before it is compared. If an
+# existing folder on it cannot be read, the guard cannot tell where the path leads and blocks.
 # The vault raw/ prefix is append-only: creating a NEW file or directory there passes, changing
 # or deleting an existing one is blocked. Skills bring a source in with hg-tool raw-add.
 #
@@ -52,6 +54,13 @@ ROOT_W="$ROOT_L"                 # Git Bash reports folders under its own mounts
 if [ "$WIN" = 1 ] && [ -n "${ROOT_NATIVE:-}" ]; then to_posix "$ROOT_NATIVE"; ROOT_W="$REPLY"; fi
 
 # --- paths ---------------------------------------------------------------------------
+UNSURE="(a short path that cannot be spelled out)"
+long_form() {  # sets REPLY to an absolute path with the 8.3 names of its existing folders spelled out; 1 if unreadable
+  local head="$1" tail=""
+  REPLY="$1"
+  while [ -n "$head" ] && [ ! -d "$head" ]; do tail="/${head##*/}$tail"; head="${head%/*}"; done
+  case "$head" in *"~"*) cd -P "$head" 2>/dev/null || return 1; REPLY="$PWD$tail";; esac   # a builtin, no subshell; rel runs in one already
+}
 rel() {   # rel <path> -> path relative to KIT_ROOT on stdout; nothing if outside the root
   local p="$1" abs part out="" seg
   [ "$WIN" = 1 ] && shopt -s nocasematch   # Windows paths ignore case; this runs in a subshell, so option parsing is unaffected
@@ -64,6 +73,9 @@ rel() {   # rel <path> -> path relative to KIT_ROOT on stdout; nothing if outsid
     case "$part" in ""|.) ;; ..) out="${out%/*}";; *) out="$out/$part";; esac
   done
   out="${out:-/}"
+  if [ "$WIN" = 1 ]; then
+    case "$out" in *"~"*) long_form "$out" || { echo "$UNSURE"; return; }; out="$REPLY";; esac
+  fi
   for r in "$ROOT_L" "$ROOT_P" "$ROOT_W"; do
     case "$out" in "$r") echo "."; return;; "$r"/*) echo "${out:${#r}+1}"; return;; esac
   done
@@ -71,6 +83,7 @@ rel() {   # rel <path> -> path relative to KIT_ROOT on stdout; nothing if outsid
 match() {  # match <relpath> -> prints the forbidden prefix it falls under
   local r="$1" p
   [ -z "$r" ] && return 1
+  [ "$r" = "$UNSURE" ] && { echo "(cannot tell whether it is inside the workspace)"; return 0; }
   [ "$WIN" = 1 ] && shopt -s nocasematch
   for p in $FORBIDDEN_WRITE_PATHS; do
     case "$r/" in $p*) echo "$p"; return 0;; esac
@@ -180,7 +193,10 @@ analyze() {
       fi
       [ "$k" -eq 0 ] && return
       if [ -z "$dest" ]; then dest="${nf[k-1]}"; k=$((k - 1)); fi
-      case "$dest" in [!/]*:*) return;; esac      # remote rsync target
+      case "$dest" in
+        [A-Za-z]:*) ;;                            # a Windows drive path, not a host
+        [!/]*:*) return;;                         # remote rsync target
+      esac
       if [ "$v" = mv ]; then for ((j = 0; j < k; j++)); do chk x mv "${nf[j]}"; done; fi
       if [ "$k" -gt 0 ]; then chk w "$v" "$(dest_of "${nf[k-1]}" "$dest")"; else chk w "$v" "$dest"; fi;;
     rm|rmdir|unlink|shred|truncate) for x in ${nf[@]+"${nf[@]}"}; do chk x "$v" "$x"; done;;

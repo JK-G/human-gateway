@@ -10,7 +10,8 @@ native_path() {  # C:/x on Windows, unchanged elsewhere
 }
 
 temp_dir() {  # temp_dir <prefix>: a new temp folder in the native path form
-  native_path "$(mktemp -d "${TMPDIR:-/tmp}/$1.XXXXXX")"
+  local base="${TMPDIR:-/tmp}"     # macOS sets TMPDIR with a trailing slash; a // in the path would not match what the tools print
+  native_path "$(mktemp -d "${base%/}/$1.XXXXXX")"
 }
 
 REPO_ROOT="$(native_path "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)")"
