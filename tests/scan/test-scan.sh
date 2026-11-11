@@ -546,7 +546,7 @@ out="$(cd "$R" && hg scan --git 2>&1)"; rc=$?
 git -C "$R" rm -q --cached prod.env; rm "$R/prod.env"
 grep -q 'hg-tool scan <file>' "$PLUGIN/skills/import-source/SKILL.md" && ok "import-source runs the scan" || bad "import-source runs the scan"
 grep -q 'keep the file out' "$PLUGIN/skills/import-source/SKILL.md" && ok "import-source keeps its way out" || bad "import-source keeps its way out"
-grep -q 'hg-tool setup --refresh-scan' "$PLUGIN/skills/setup/SKILL.md" && ok "/hg:setup --update refreshes the copy" || bad "/hg:setup --update refreshes the copy"
+grep -q 'hg-tool setup --refresh-ci' "$PLUGIN/skills/setup/SKILL.md" && ok "/hg:setup --update refreshes the copy" || bad "/hg:setup --update refreshes the copy"
 out="$(grep -n $'\xe2\x80\x94' "$PLUGIN/tools/scan.py" "$REPO_ROOT/tests/scan/test-scan.sh" "$PLUGIN/skills/import-source/SKILL.md" "$wf")"
 t '[ -z "$out" ]' "no em dashes" "$out"
 out="$(grep -nE '^(from|import) ' "$PLUGIN/tools/scan.py" | grep -vE 'import (argparse|json|os|re|shutil|subprocess|sys|unicodedata)$')"

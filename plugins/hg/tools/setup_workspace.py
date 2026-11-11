@@ -2,14 +2,18 @@
 """setup_workspace.py - turn a folder into a department workspace. Non-interactive.
 
 Usage: hg-tool setup [--root DIR] [--name N] [--language L] [--timezone Z] [--marketplace owner/repo] [--project slug]
-       hg-tool setup [--root DIR] --refresh-scan
+       hg-tool setup [--root DIR] --refresh-ci      (--refresh-scan is another name for it)
 
 Creates whatever is missing from templates/workspace, generates .claude/hg.json and runs git init when
 the folder is in no repository. Never overwrites an existing file, so a second run changes nothing. Two
 additions, which only add what is missing: an existing .gitignore gets the template's missing lines, because without
 them intake/ reaches git, and an existing .claude/settings.json gets the template's missing permission rules and the
-marketplace, because `claude plugin install --scope project` creates that file first. --project also adds vault/projects/<slug> and vault/raw/<slug>/. The scanner is copied to .github/hg/scan.py for CI;
---refresh-scan replaces that copy and does nothing else, the one case where a file is overwritten.
+marketplace, because `claude plugin install --scope project` creates that file first. --project also adds vault/projects/<slug> and vault/raw/<slug>/.
+
+CI has no plugin, so the five tools it runs are copied to .github/hg/ (scan.py, notify.py, gate.py, canonicalize.py,
+kit_registry.py). --refresh-ci replaces those copies, the one case where a file is overwritten, and creates
+.github/workflows/hg-scan.yml and hg-notify.yml when they are missing. It never overwrites a workflow file and touches
+nothing else.
 
 Output: created<TAB>path, skipped<TAB>path, updated<TAB>path, note<TAB>text, error<TAB>text, then one summary line.
 Exit: 0 ok, 1 a file or git step failed, 2 usage error.
@@ -28,8 +32,10 @@ import gate  # noqa: E402
 import kit_registry as kr  # noqa: E402
 
 TEMPLATE =Path(__file__).resolve().parent.parent / "templates" / "workspace"
-SCANNER = Path(__file__).resolve().parent / "scan.py"
-SCANNER_COPY = ".github/hg/scan.py"
+TOOLS = Path(__file__).resolve().parent
+CI_TOOLS = ("scan.py", "notify.py", "gate.py", "canonicalize.py", "kit_registry.py")
+CI_DIR = ".github/hg"
+WORKFLOWS = (".github/workflows/hg-scan.yml", ".github/workflows/hg-notify.yml")
 TOKEN_FILES = {"CLAUDE.md", "AGENTS.md"}
 RAW_KINDS = ("meetings", "interviews", "sources", "snapshots")
 MARKETPLACE = "human-gateway"
@@ -224,24 +230,31 @@ def add_project(root, args, report):
         report.line("note", "add \"%s\" to projects with: hg-tool conf-set project %s" % (slug, slug))
 
 
-def refresh_scanner(root):
+def refresh_ci(root):
+    """Replace the five copies CI runs and create a missing workflow. One line per file."""
     if not root.joinpath(*kr.CONFIG_PARTS).is_file():
         print("error\t.claude/hg.json is missing, so this is not a department workspace. Run /hg:setup.")
         return 1
-    new = SCANNER.read_text(encoding="utf-8")
-    dest = root / SCANNER_COPY
-    if dest.is_file() and dest.read_text(encoding="utf-8") == new:
-        print("skipped\t%s" % SCANNER_COPY)
-        return 0
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(new)
-    except OSError as exc:
-        print("error\t%s: %s" % (SCANNER_COPY, exc))
-        return 1
-    print("updated\t%s" % SCANNER_COPY)
-    return 0
+    report = Report()
+    for name in CI_TOOLS:
+        rel = "%s/%s" % (CI_DIR, name)
+        new = (TOOLS / name).read_text(encoding="utf-8")
+        dest = root / rel
+        existed = dest.is_file()
+        if existed and dest.read_text(encoding="utf-8") == new:
+            report.line("skipped", rel)
+            continue
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with open(dest, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(new)
+        except OSError as exc:
+            report.line("error", "%s: %s" % (rel, exc))
+            continue
+        report.line("updated" if existed else "created", rel)
+    for rel in WORKFLOWS:
+        create(root, rel, (TEMPLATE / rel).read_text(encoding="utf-8"), report)
+    return 1 if report.errors else 0
 
 
 def git_init(root, report):
@@ -270,7 +283,7 @@ def parse(argv):
     parser.add_argument("--timezone", default=kr.DEFAULTS["TIMEZONE"])
     parser.add_argument("--marketplace")
     parser.add_argument("--project")
-    parser.add_argument("--refresh-scan", action="store_true")
+    parser.add_argument("--refresh-ci", "--refresh-scan", dest="refresh_ci", action="store_true")
     args = parser.parse_args(argv)
     if args.name is not None and (not args.name.strip() or "\n" in args.name):
         parser.error("--name must be one non-empty line")
@@ -289,8 +302,8 @@ def main(argv):
     kr.stdio_utf8()
     args = parse(argv)
     root = kr.kit_root(native_root(args.root) if args.root else None)
-    if args.refresh_scan:
-        return refresh_scanner(root)
+    if args.refresh_ci:
+        return refresh_ci(root)
     args.name = args.name or root.name
     report = Report()
     try:
@@ -300,7 +313,8 @@ def main(argv):
         return 1
     copy_template(root, args, report)
     write_config(root, args, report)
-    create(root, SCANNER_COPY, SCANNER.read_text(encoding="utf-8"), report)
+    for name in CI_TOOLS:
+        create(root, "%s/%s" % (CI_DIR, name), (TOOLS / name).read_text(encoding="utf-8"), report)
     if args.project:
         add_project(root, args, report)
     git_init(root, report)

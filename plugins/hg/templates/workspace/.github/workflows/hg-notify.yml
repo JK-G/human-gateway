@@ -1,0 +1,52 @@
+name: hg notify
+
+# Says in the department's channel which gates wait. Separate from "hg scan" on purpose:
+# a message that cannot be sent fails only this run.
+# The webhook address is the Actions secret HG_SLACK_WEBHOOK_URL. This file holds only its name.
+# There is no pull_request trigger here, and there must never be one.
+
+on:
+  push:
+    branches: ["**"]
+  schedule:
+    - cron: "30 6 * * *"   # UTC, every day. notify.py skips days outside "workdays" in .claude/hg.json.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "list: the list of what waits. test: one fixed test message."
+        type: choice
+        options:
+          - list
+          - test
+        default: list
+
+permissions:
+  contents: read
+
+# No "concurrency" block, on purpose: GitHub keeps one pending run per group and cancels
+# the older one, so a push's messages would be lost.
+
+jobs:
+  notify:
+    # A push counts only on the default branch, whatever its name, and not when a branch is deleted.
+    if: >-
+      github.event_name != 'push' ||
+      (github.ref_name == github.event.repository.default_branch && !github.event.deleted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Say which gates wait
+        env:
+          HG_SLACK_WEBHOOK_URL: ${{ secrets.HG_SLACK_WEBHOOK_URL }}
+          HG_EVENT: ${{ github.event_name }}
+          HG_MODE: ${{ inputs.mode }}
+          HG_BEFORE: ${{ github.event.before }}
+          HG_AFTER: ${{ github.sha }}
+        run: python .github/hg/notify.py ci

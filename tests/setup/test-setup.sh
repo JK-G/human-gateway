@@ -41,7 +41,7 @@ printf '%s' "$conf" | jtrue 'd["schemaVersion"]==1 and d["projectName"].endswith
 grep -qF '"projectName": "Zespół Produkt"' "$W/.claude/hg.json" && ok "hg.json keeps non-ASCII text" || bad "hg.json keeps non-ASCII text" "$conf"
 printf '%s' "$conf" | jtrue 'd["language"]["content"]=="pl" and d["timezone"]=="Europe/Warsaw" and "gates/" in d["forbiddenWritePaths"]' && ok "hg.json has language, zone and forbidden paths" || bad "hg.json has language, zone and forbidden paths" "$conf"
 
-left="$(grep -rlF '{{' "$W" --exclude-dir=.git)"
+left="$(grep -rlE '\{\{[A-Z_]+\}\}' "$W" --exclude-dir=.git)"   # a workflow's ${{ secrets.X }} is not a template token
 t '[ -z "$left" ]' "no template token is left" "$left"
 grep -q '^# Zespół Produkt workspace$' "$W/CLAUDE.md" && ok "CLAUDE.md has the name" || bad "CLAUDE.md has the name"
 grep -q 'Write to people in pl\.' "$W/AGENTS.md" && ok "AGENTS.md has the language" || bad "AGENTS.md has the language"

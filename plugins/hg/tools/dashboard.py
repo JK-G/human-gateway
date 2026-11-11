@@ -29,6 +29,11 @@ TEXT = {
         "draft": "draft", "approved": "approved", "reopened_status": "reopened", "changed": "changed", "added": "added",
         "removed": "removed", "missing": "file missing", "unreadable": "cannot be read",
         "accountable": "accountable person changed", "invalid": "not a path in this repo",
+        "unchecked_status": "source not checked", "source_check": "Outside source to check",
+        "source_changed": "outside source changed", "source_added": "outside source added",
+        "source_removed": "outside source removed", "source_replaced": "outside source now points elsewhere",
+        "source_invalid": "not a valid outside source", "source_unchecked": "no check of the outside source recorded yet",
+        "source_stale": "last recorded check %d days ago",
     },
     "pl": {
         "generated": "Plik generowany przez hg. Nie edytuj go: kolejne odświeżenie go zastąpi.", "waits": "Czeka na Ciebie",
@@ -41,6 +46,12 @@ TEXT = {
         "reopened_status": "otwarta ponownie", "changed": "zmiana", "added": "dodane", "removed": "usunięte",
         "missing": "brak pliku", "unreadable": "nie da się odczytać",
         "accountable": "zmiana osoby odpowiedzialnej", "invalid": "to nie jest ścieżka w tym repo",
+        "unchecked_status": "źródło niesprawdzone", "source_check": "Źródło do sprawdzenia",
+        "source_changed": "zmiana w źródle zewnętrznym", "source_added": "dodane źródło zewnętrzne",
+        "source_removed": "usunięte źródło zewnętrzne", "source_replaced": "źródło zewnętrzne wskazuje inne miejsce",
+        "source_invalid": "błędny wpis źródła zewnętrznego",
+        "source_unchecked": "brak zapisanego sprawdzenia źródła zewnętrznego",
+        "source_stale": "ostatnie zapisane sprawdzenie %d dni temu",
     },
 }
 
@@ -53,8 +64,14 @@ def cell(text):
     return one_line(text).replace("|", "\\|")
 
 
+def reason(item, t):
+    if item["why"] == "source_stale":
+        return t["source_stale"] % int(item.get("days") or 0)
+    return t.get(item["why"], item["why"])
+
+
 def changes(items, t):
-    return ", ".join("`%s` (%s)" % (c["path"], t.get(c["why"], c["why"])) for c in items)
+    return ", ".join("`%s` (%s)" % (c["path"], reason(c, t)) for c in items)
 
 
 def gate_link(gate_id, title):
@@ -65,6 +82,8 @@ def gate_link(gate_id, title):
 def waits(data, t):
     lines = ["- %s: %s: %s" % (t["reopened"], gate_link(g["id"], g["title"]), changes(g["changed"], t))
              for g in data["gates"] if g["status"] == "reopened"]
+    lines += ["- %s: %s: %s" % (t["source_check"], gate_link(g["id"], g["title"]), changes(g["changed"], t))
+              for g in data["gates"] if g["status"] == "unchecked"]
     lines += ['- %s: %s, %s: "%s"' % (t["agent"] if a["own"] else t["agent_other"] % one_line(a["by"]),
                                       gate_link(a["gate"], a["title"]), a["at"][:10], one_line(a["request"]))
               for a in data["agent_approvals"]]
@@ -75,7 +94,8 @@ def waits(data, t):
 def gates_table(data, t):
     if not data["gates"]:
         return [t["no_gates"]]
-    names = {"draft": t["draft"], "approved": t["approved"], "reopened": t["reopened_status"]}
+    names = {"draft": t["draft"], "approved": t["approved"], "reopened": t["reopened_status"],
+             "unchecked": t["unchecked_status"]}
     rows = ["| %s | %s | %s | %s |" % (t["gate"], t["status"], t["accountable_column"], t["changes"]), "|---|---|---|---|"]
     rows += ["| %s | %s | %s | %s |" % (cell(gate_link(g["id"], g["title"])), names[g["status"]], cell(g["accountable"]),
                                         cell(changes(g["changed"], t)))

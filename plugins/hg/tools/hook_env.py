@@ -27,7 +27,7 @@ def main():
     pairs = [("CMD", command), ("CWD", cwd), ("ROOT_NATIVE", str(root)),
              ("FORBIDDEN_WRITE_PATHS", conf["FORBIDDEN_WRITE_PATHS"]), ("VAULT_DIR", conf["VAULT_DIR"])]
     text = "".join("%s=%s\n" % (name, shlex.quote(value)) for name, value in pairs)
-    sys.stdout.buffer.write(text.encode("utf-8"))
+    sys.stdout.buffer.write(text.encode("utf-8", "replace"))  # a lone surrogate becomes ?, never an empty CMD
     return 0
 
 

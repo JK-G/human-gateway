@@ -30,20 +30,19 @@ Od tej chwili wszystko wpisujesz w oknie Claude Code.
 
 Potrzebujesz konta na github.com. Jeśli go nie masz, załóż je.
 
-1. Napisz do Claude'a zwykłym zdaniem: `Zainstaluj git i GitHub CLI, jeśli ich nie mam.` Gdy poprosi o zgodę, potwierdź.
-2. Wpisz poniższe polecenie. Wykrzyknik na początku uruchamia je od razu, bez udziału Claude'a. Wybierz GitHub.com, HTTPS i logowanie w przeglądarce, a na stronie podaj kod, który pokaże Claude Code.
+1. Napisz do Claude'a zwykłym zdaniem: `Zainstaluj git, GitHub CLI i Pythona 3, jeśli ich nie mam.` Gdy poprosi o zgodę, potwierdź.
+2. Jeśli Claude coś zainstalował, zamknij terminal, otwórz go ponownie i powtórz punkty 2 i 3 z części „Otwórz pusty folder”. W Windows świeżo zainstalowany program działa dopiero w nowym oknie terminala.
+3. Wpisz poniższe polecenie. Wykrzyknik na początku uruchamia je od razu, bez udziału Claude'a. Wybierz GitHub.com, HTTPS i logowanie w przeglądarce, a na stronie podaj kod, który pokaże Claude Code.
 
 ```
 ! gh auth login
 ```
 
-3. Na koniec wpisz:
+4. Na koniec wpisz:
 
 ```
 ! gh auth setup-git
 ```
-
-Jeśli świeżo zainstalowany program nie działa, zamknij terminal, otwórz go ponownie i powtórz punkty 2 i 3 z części „Otwórz pusty folder”.
 
 ## 4. Zainstaluj plugin
 
@@ -61,7 +60,7 @@ Gdy się skończą, wpisz po kolei:
 /hg:setup
 ```
 
-`/hg:setup` sprawdza komputer i proponuje doinstalowanie tego, czego brakuje. Potem pyta o nazwę przestrzeni, język notatek i strefę czasową, a na końcu tworzy foldery i pliki. Istniejących plików nie nadpisuje, więc możesz go uruchomić ponownie.
+`/hg:setup` sprawdza komputer i proponuje doinstalowanie tego, czego brakuje. Potem pyta o nazwę przestrzeni, język notatek i strefę czasową, a na końcu tworzy foldery i pliki. Istniejących plików nie nadpisuje, więc możesz go uruchomić ponownie. Jeśli git nie zna jeszcze Twojego imienia i e-maila, zapyta o nie: bez nich nie da się zapisać zmian ani zatwierdzić bramki.
 
 ## Co dalej
 
@@ -71,6 +70,23 @@ Poproś Claude'a o commit, czyli zapis plików w historii zmian. Potem poproś o
 
 Kolejnym osobom w dziale wyślij plik [QUICKSTART-druga-osoba.md](QUICKSTART-druga-osoba.md), z adresem repozytorium wpisanym w miejsce `<adres repozytorium>`.
 
+### Wiadomość na Slacku
+
+Repozytorium może pisać na kanał działu na Slacku, gdy bramka zaczyna czekać na zatwierdzenie, a w dni robocze rano wysyła listę tego, co czeka. Potrzebujesz:
+
+- repozytorium na GitHubie, wysłanego jak wyżej,
+- adresu webhooka dla kanału działu. Tworzy się go w Slacku (Incoming Webhook). Czasem może to zrobić tylko administrator Slacka.
+
+Wpisz:
+
+```
+/hg:setup --slack
+```
+
+Claude przeprowadzi Cię przez trzy kroki: otworzysz stronę GitHuba, którą Ci poda, wpiszesz tam nazwę `HG_SLACK_WEBHOOK_URL`, wkleisz adres webhooka i zapiszesz. Adres wklejasz tylko na tej stronie, nigdy w rozmowie z Claude'em ani w pliku. Jeśli trafił gdzie indziej, usuń ten webhook w Slacku i utwórz nowy. Na koniec Claude wyśle wiadomość próbną i zapyta, czy dotarła na kanał. Zielony znaczek na GitHubie tego nie potwierdza. Liczy się tylko to, czy widzisz wiadomość na kanale.
+
+Ustaw w Slacku powiadomienia tego kanału na każdą nową wiadomość, inaczej nikt nie dostanie sygnału.
+
 ### Zbierz to, co dział już ma
 
 Wrzuć pliki do folderu `intake/`, a linki wypisz w pliku `intake/links.md`. Potem wpisz:
@@ -79,7 +95,7 @@ Wrzuć pliki do folderu `intake/`, a linki wypisz w pliku `intake/links.md`. Pot
 /hg:init
 ```
 
-Claude przeczyta materiały i zapisze mapę kontekstu: co skąd pochodzi, czego brakuje i co się z czym nie zgadza. Zada najwyżej 5 pytań, a jedno z nich zawsze brzmi: kto może czytać to repozytorium.
+Claude przeczyta materiały i zapisze mapę kontekstu: co skąd pochodzi, czego brakuje i co się z czym nie zgadza. Zada najwyżej 5 pytań. Za pierwszym razem jedno z nich brzmi: kto może czytać to repozytorium.
 
 Zanim zapisze strony wiki i szkice bramek, pokaże Ci jedną listę do akceptacji.
 
@@ -101,5 +117,7 @@ Ręcznie wpisujesz tylko dwa polecenia, a Claude powie, kiedy: `/hg:init`, gdy w
 Gdy w ciągu dnia dostaniesz nowy plik, wrzuć go do `intake/` i wpisz samo `/hg:init`, bez dopisków. Claude przeczyta tylko to, co nowe.
 
 Bramka to zapis, że wskazane pliki zostały zatwierdzone, i kto za nie odpowiada. Gdy któryś z nich się zmieni, bramka otwiera się ponownie, a Claude pokaże to w podsumowaniu dnia.
+
+Bramka może też wskazywać link do innego systemu, na przykład zadania albo tablicy. Na początku dnia Claude sprawdza, czy to źródło się zmieniło, jeśli ta sesja umie je odczytać. Jeśli nie umie, powie Ci o tym. Wtedy możesz sam zajrzeć do źródła i napisać, czy coś się zmieniło. Przed zatwierdzeniem bramki Claude zapyta Cię o takie źródło wprost.
 
 Notatka dnia zostaje na Twoim komputerze. Plik `DASHBOARD.md` w folderze działu pokazuje bramki, projekty i aktywność i odświeża się sam.

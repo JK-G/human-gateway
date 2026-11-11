@@ -8,7 +8,7 @@ hooks and tools come from the plugin. Write to people in {{CONTENT_LANGUAGE}}.
 | Path | Purpose |
 |---|---|
 | `vault/` | Knowledge: wiki by type, raw sources, journal, projects, daily notes. See [vault/CLAUDE.md](vault/CLAUDE.md). |
-| `gates/` | Approval gates. Written only by `hg-tool gate`. |
+| `gates/` | Approval gates and observations of outside sources. Written only by `hg-tool gate`. |
 | `DASHBOARD.md` | Your own view of gates, projects and activity. Generated, outside git. |
 | `intake/` | Files and links waiting for a scan. Outside git. |
 | `.claude/hg.json` | Workspace configuration. |

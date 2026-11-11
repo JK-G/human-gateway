@@ -17,6 +17,9 @@
 # The vault raw/ prefix is append-only: creating a NEW file or directory there passes, changing
 # or deleting an existing one is blocked. Skills bring a source in with hg-tool raw-add.
 #
+# A line that passes a mark to hg-tool gate observe (text from an outside system) must be exactly the
+# command the tool printed, alone, with the value in single quotes and only safe characters in it.
+#
 # This is a heuristic against honest mistakes, not a sandbox. It fails open (exit 0) when the
 # payload cannot be parsed. Human escape hatch: HG_GUARD_BYPASS=1 in the environment that
 # launched Claude Code. Agents never set it.
@@ -48,6 +51,13 @@ else
   CWD="${CWD:-$ROOT_L}"
 fi
 [ -z "${CMD:-}" ] && exit 0
+# A mark comes from an outside system: tested on the raw text, before the tokenizer, which does not see "$(...)".
+OBS_ANY='hg-tool[[:space:]]+gate[[:space:]]+observe'
+OBS_LINE="^[[:space:]]*hg-tool gate observe [a-z0-9][a-z0-9-]* [a-z0-9][a-z0-9-]* --field [A-Za-z][A-Za-z0-9_.-]* --mark '[A-Za-z0-9 .,:+/_=-]+'[[:space:]]*\$"
+if [[ "$CMD" =~ $OBS_ANY ]] && [[ "$CMD" == *--mark* ]] && ! [[ "$CMD" =~ $OBS_LINE ]]; then
+  echo "BLOCKED by guard-bash: a mark is passed only as the command the tool printed, alone on its line, with the value in single quotes. The value may hold only letters, digits, spaces and . , : + / _ = -. If it holds anything else, do not pass it: show the source's no_tool_line." >&2
+  exit 2
+fi
 FORBIDDEN_WRITE_PATHS="${FORBIDDEN_WRITE_PATHS:-vault/raw/ gates/ .obsidian/}"
 to_posix "$CWD"; CWD="$REPLY"
 ROOT_W="$ROOT_L"                 # Git Bash reports folders under its own mounts as /tmp/x, payloads say C:/.../x

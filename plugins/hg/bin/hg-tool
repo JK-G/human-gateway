@@ -22,11 +22,14 @@ usage: hg-tool <command> [args]
   doctor [--root DIR]                  health check of this workspace
   setup [--root DIR] [--name N] [--language L] [--timezone Z] [--marketplace owner/repo] [--project slug]
                                        create the department workspace; never overwrites a file
-  setup [--root DIR] --refresh-scan    replace .github/hg/scan.py with the plugin's scanner
+  setup [--root DIR] --refresh-ci      replace the tools CI copies in .github/hg/, add a missing workflow
+                                       (--refresh-scan is another name for it)
   scan [--json] [--git] [--config FILE] [PATH ...]
                                        find secrets, personal data and files that stay links
   log --op <op> --agent <id> [...]     append to the event log
-  gate new|list|approve|note [...]     approvals that reopen when their inputs change
+  gate new|list|approve|note|source|observe [...]
+                                       approvals that reopen when their inputs or outside sources change
+  notify push|digest|test|status [...] preview the Slack messages, or check the notifier's setup
   conf KEY | conf --sh                 read .claude/hg.json
   conf-set readers "role, role"        save who may read this repo, as roles
   conf-set project <slug>              add a project to .claude/hg.json
@@ -124,6 +127,14 @@ case "$cmd" in
     exec $HG_PYTHON "$TOOLS/gate.py" "$@"
     ;;
   dashboard) exec $HG_PYTHON "$TOOLS/dashboard.py" "$@" ;;
+  notify)
+    # Only CI posts: 'ci' is started there as python .github/hg/notify.py ci, never from a laptop by accident.
+    if [ "${1:-}" = ci ]; then
+      echo "hg-tool: 'notify ci' posts and runs only in CI. Preview with: hg-tool notify push|digest|test" >&2
+      exit 2
+    fi
+    exec $HG_PYTHON "$TOOLS/notify.py" "$@"
+    ;;
   setup)
     # --name is free text and --root may be D:\x, D:/x or /d/x: the tool normalizes it itself.
     export MSYS2_ARG_CONV_EXCL='*'

@@ -8,6 +8,10 @@ intake/*
 DASHBOARD.md
 .gateway/
 
+# Python leaves these when a tool in .github/hg/ is run by hand
+__pycache__/
+*.pyc
+
 # Claude Code, per person
 .claude/state/
 .claude/settings.local.json

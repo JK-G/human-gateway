@@ -11,3 +11,6 @@ Run `hg-tool doctor`. It prints one finding per line as `LEVEL<TAB>check<TAB>mes
 Explain the result to the person in plain words, in `language.content` from `.claude/hg.json` when it is
 readable. Lead with what is broken and the one thing to do about it. Do not list the checks that passed
 unless asked. If a tool is missing, offer `/hg:setup`.
+
+A `notify-secret` or `notify-run` warning is for the person who set up the repo on GitHub. Anyone else is told to
+pass it on to that person.

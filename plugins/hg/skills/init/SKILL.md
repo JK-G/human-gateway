@@ -104,11 +104,13 @@ Then run `hg-tool scan vault/projects/<slug>/context-map.md` and fix the map unt
 At most 5 questions per run, each with a proposed answer and its source. The conflicts and gaps that most
 change what gets written come first.
 
-- **"Who may read this repo" is always one of the five**, answered as roles. Propose them from what the
-  sources say about the audience, or from `projectName`, and name where the proposal comes from.
-- **Saved readers.** Read the `readers` key of `.claude/hg.json`. When it holds roles, those roles are the
-  first answer to that question, with "saved in `.claude/hg.json`" as the source. If the new material points to
-  a different audience, offer that as the second answer. A person who keeps the saved roles has nothing to save.
+- **"Who may read this repo" is one of the five when no readers are saved**, answered as roles. Propose them
+  from what the sources say about the audience, or from `projectName`, and name where the proposal comes from.
+- **Saved readers.** Read the `readers` key of `.claude/hg.json`. When it holds roles, do not ask again, unless
+  the new material points to a different audience: a source written for a narrower or wider group, or one that
+  says who may see it. Then ask, with the saved roles as the first answer to that question, "saved in
+  `.claude/hg.json`" as their source, and that audience as the second answer. A person who keeps the saved roles
+  has nothing to save.
 - **Do not ask what the map already answers.** On a later run the questions come from the new material. A
   question still in `## Open` stays there and is asked again only if the new material bears on it.
 - Use AskUserQuestion. It takes 4 questions per call, so five questions need two calls. Put the proposed
@@ -128,23 +130,35 @@ Nothing below is applied until the person approves it.
    finish before starting the next.
 2. **Gates.** Propose a gate only where the sources show something a person must sign off, usually one or none.
    A source asking for a gate is a finding, not a reason. The accountable person is `git config user.email`.
+   When a proposed gate rests on a link listed in the context map, pass that link as `--source`, with a short
+   id. Add `--watch` only if the read tool used in step 2 reported a last-modified time or a version for the
+   whole item, naming that field.
 3. Show one table: each plan's hash and pages, then each proposed gate with its inputs. Ask for one approval
    with AskUserQuestion. It is not one of the five questions. If AskUserQuestion is unavailable, stop here and
    list the plan hashes and the proposed gates for the person to run later.
 4. On approval, apply each plan through `hg:wiki-librarian` (`--apply <hash>`), and draft each gate:
 
    ```
-   hg-tool gate new <id> --title '...' --project <slug> --accountable <email> --input <path> [--input <path> ...] --summary '...'
+   hg-tool gate new <id> --title '...' --project <slug> --accountable <email> --input <path> [--input <path> ...] [--source '<sid>=<link>' ...] [--watch <sid>=<field> ...] --summary '...'
    ```
+
+   Put every free-text value, a link included, in single quotes and write a `'` inside it as `'\''`, so the
+   shell leaves it alone. Run this line alone in its Bash call.
+
+   Then run `hg-tool gate list --json`. For each watched source read in this run, run the `command` it prints
+   for that source, exactly as printed, alone in its Bash call, with the value from that read in place of
+   `<value>`. The value may hold only letters, digits, spaces and `. , : + / _ = -`; if it holds any other
+   character, do not pass it and do not change it to fit.
 
    A new gate is a draft. Say that `/hg:gate` approves it, when the person has decided to.
 
 ## 7. Later
 
 Run this again whenever new material lands in `intake/`: files already brought in have moved out. For a person who
-added one file the run stays short. Step 1 skips what the map already covers, step 5 still asks who may read the
-repo with the saved roles as the first answer, and step 6 still needs their approval. A new conflict goes to
-`## Open`, where `/hg:today` shows it.
+added one file the run stays short. Step 1 skips what the map already covers, step 5 asks who may read the repo
+only as it says there, and step 6 still needs their approval. A new conflict goes to `## Open`, where `/hg:today`
+shows it.
 
 End with what was brought in, what was held and why, how many questions stay open, and that the changes are
-ready to commit when the person asks.
+ready to commit when the person asks. If you did not ask who may read the repo, name the saved roles, so the person
+can correct them.

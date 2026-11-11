@@ -2,7 +2,8 @@
 """session_start.py - SessionStart hook: the rules a plugin cannot ship as .claude/rules.
 
 Prints a short block that Claude Code adds to the session context, plus a warning when the repo's
-schemaVersion does not match this plugin and one when a gate has reopened. Always exits 0.
+schemaVersion does not match this plugin, one when a gate has reopened and one when a gate has an outside
+source with no recent recorded check. Always exits 0.
 """
 import json
 import sys
@@ -33,14 +34,23 @@ def extra_terms(root):
     return "\n- This company also keeps out of git: %s." % "; ".join(str(x) for x in extra) if extra else ""
 
 
-def reopened_line(root):
+def reopened_line(root, conf=None):
+    """The reopened line and the unchecked line, from one read of the gates. Only counts: a gate's file name and a
+    source id are committed text and must not reach a session."""
     try:
-        count = sum(1 for g in gate.all_gates(root) if g["status"] == "reopened")
+        gates = gate.all_gates(root)
+        days = kr.source_check_days(conf or kr.load_conf(root))
     except Exception:  # a broken gate file must never disturb the session
         return ""
-    if not count:
-        return ""  # only the count: a gate's file name is committed text and must not reach a session
-    return "- %d gate%s reopened. Show them with /hg:today." % (count, "" if count == 1 else "s")
+    lines = []
+    reopened = sum(1 for g in gates if g["status"] == "reopened")
+    if reopened:
+        lines.append("- %d gate%s reopened. Show them with /hg:today." % (reopened, "" if reopened == 1 else "s"))
+    unchecked = sum(1 for g in gates if g["status"] == "unchecked")
+    if unchecked:
+        lines.append("- %d %s an outside source with no check recorded here for more than %d days. /hg:today refreshes them."
+                     % (unchecked, "gate has" if unchecked == 1 else "gates have", days))
+    return "\n".join(lines)
 
 
 def main():
@@ -53,7 +63,7 @@ def main():
     if conf["SCHEMA_VERSION"] != str(kr.EXPECTED_SCHEMA_VERSION):
         print("- This repo's config is schemaVersion %s and the plugin expects %d. Run /hg:setup --update."
               % (conf["SCHEMA_VERSION"], kr.EXPECTED_SCHEMA_VERSION))
-    line = reopened_line(root)
+    line = reopened_line(root, conf)
     if line:
         print(line)
     return 0

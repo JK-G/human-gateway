@@ -15,6 +15,7 @@ DEFAULTS = {  # applied when hg.json lacks a key
     "FORBIDDEN_WRITE_PATHS": "vault/raw/ gates/ .obsidian/", "CONTENT_LANGUAGE": "en", "INFRA_LANGUAGE": "en",
     "TIMEZONE": "UTC", "WORKDAYS": "1-5", "CHEAP_MODEL": "sonnet", "ADVISOR_MODEL": "opus",
     "LOG_ROTATE_BYTES": "512000", "MAX_MD_LINES": "280", "MAX_MEMORY_LINE_CHARS": "300",
+    "SOURCE_CHECK_DAYS": "7",
 }
 CONFIG_PARTS = (".claude", "hg.json")
 EXPECTED_SCHEMA_VERSION = 1
@@ -27,6 +28,7 @@ JSON_NESTED = {
     "models": {"cheap": "CHEAP_MODEL", "advisor": "ADVISOR_MODEL"},
     "limits": {"logRotateBytes": "LOG_ROTATE_BYTES", "maxMdLines": "MAX_MD_LINES",
                "maxMemoryLineChars": "MAX_MEMORY_LINE_CHARS"},
+    "gates": {"sourceCheckDays": "SOURCE_CHECK_DAYS"},
 }
 TEMPORAL = ("living", "snapshot")
 STATUS = ("active", "superseded", "retracted")
@@ -90,6 +92,11 @@ def load_conf(root=None, strict=False):
             if key in section:
                 conf[flat] = _flat(section[key])
     return conf
+
+def source_check_days(conf):
+    """N of gates.sourceCheckDays: a whole number from 1 to 90, anything else counts as 7."""
+    value = str(conf.get("SOURCE_CHECK_DAYS", "7")).strip()
+    return int(value) if re.fullmatch(r"\d{1,2}", value) and 1 <= int(value) <= 90 else 7
 
 def projects(conf):
     return [p for p in conf.get("PROJECTS", "").split() if p]

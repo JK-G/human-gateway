@@ -134,6 +134,60 @@ def approval_line(entry, polish):
         title, account, "on " + day if day else "on an unknown date")
 
 
+SOURCE_TEXT = {
+    True: {
+        "changed": "Źródło „{source}” bramki „{title}” zmieniło się po zatwierdzeniu. Bramka czeka na ponowne zatwierdzenie.",
+        "stale": "Ostatnie zapisane sprawdzenie źródła „{source}” bramki „{title}” jest sprzed {days} dni ({date}). "
+                 "Nie wiadomo, czy zatwierdzenie jest aktualne.",
+        "never": "Źródło „{source}” bramki „{title}” nie ma jeszcze zapisanego sprawdzenia.",
+        "person": "Źródło „{source}” bramki „{title}” sprawdza tylko człowiek. Ostatnio {date}.",
+        "no_tool": "Źródła „{source}” bramki „{title}” ta sesja nie umie odczytać. Ostatnio sprawdzone {date}.",
+        "no_tool_never": "Źródła „{source}” bramki „{title}” ta sesja nie umie odczytać.",
+    },
+    False: {
+        "changed": 'Source "{source}" of gate "{title}" changed after the approval. The gate waits for a new approval.',
+        "stale": 'The last recorded check of source "{source}" of gate "{title}" is {days} days old ({date}). '
+                 'It is not known whether the approval still holds.',
+        "never": 'No check of source "{source}" of gate "{title}" has been recorded yet.',
+        "person": 'Only a person checks source "{source}" of gate "{title}". Last on {date}.',
+        "no_tool": 'This session cannot read source "{source}" of gate "{title}". Last checked on {date}.',
+        "no_tool_never": 'This session cannot read source "{source}" of gate "{title}".',
+    },
+}
+
+
+def changed_line(title, source, polish):
+    """The sentence for a source that changed after the approval; also the second line of 'gate observe'."""
+    return SOURCE_TEXT[bool(polish)]["changed"].format(source=source, title=inline(title))
+
+
+def source_lines(entry, polish):
+    """(line, no_tool_line) for one source of an approved gate: finished sentences /hg:today copies as they are."""
+    text = SOURCE_TEXT[bool(polish)]
+    fill = {"source": entry["source"], "title": inline(entry["title"]), "days": entry["days"], "date": entry["checked"]}
+    state, watched = entry["state"], bool(entry["watch"])
+    if state == "never":
+        return text["never"].format(**fill), text["no_tool_never"].format(**fill) if watched else ""
+    no_tool = text["no_tool"].format(**fill) if watched else ""
+    if state in ("changed", "stale"):
+        return text[state].format(**fill), no_tool
+    return ("" if watched else text["person"].format(**fill)), no_tool
+
+
+def source_data(gates, polish):
+    """One entry per source of every gate with at least one approval. Drafts are read in the approve flow."""
+    found = []
+    for g in gates:
+        if not g["approvals"]:
+            continue
+        for s in g["sources"]:
+            entry = {"gate": g["id"], "source": s["id"], "url": s["url"], "watch": s["watch"], "state": s["state"],
+                     "checked": s["checked"][:10], "days": s["days"], "command": s["command"]}
+            line, no_tool_line = source_lines(dict(entry, title=g["title"]), polish)
+            found.append(dict(entry, line=line, no_tool_line=no_tool_line))
+    return found
+
+
 def collect(root):
     conf = kr.load_conf(root)
     vault = conf["VAULT_DIR"].rstrip("/")
@@ -154,6 +208,7 @@ def collect(root):
         "last_journal": last_journal(root, conf, today),
         "log": log_summary(root, conf, today),
         "gates": [{key: g[key] for key in GATE_KEYS} for g in gates],
+        "sources": source_data(gates, gate.is_polish(conf)),
         "agent_approvals": [dict(a, line=approval_line(a, gate.is_polish(conf)))
                             for a in gate.agent_approvals(root, gates, since)],
         "open_questions": open_questions(root, vault),

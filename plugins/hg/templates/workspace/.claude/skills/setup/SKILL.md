@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Prepare this computer for this department workspace - install git, gh and Python, sign in to GitHub, install the hg plugin, then hand over to /hg:setup.
+description: Prepare this computer for this department workspace - install git, gh and Python, sign in to GitHub, set the git name and email, install the hg plugin, then hand over to /hg:setup.
 disable-model-invocation: true
 ---
 
@@ -55,7 +55,21 @@ to go ahead. That one answer covers every install below.
      repo, and stop.
 4. Run `gh auth setup-git`, so that git can read private repositories.
 
-## 4. Install the plugin
+## 4. Set the git identity
+
+A commit and an approval of a gate both need a name and an email in git. Run `git config user.email` and
+`git config user.name`. If either prints nothing, ask the person for the missing one, then set it for this
+repo only, without `--global`:
+
+```
+git config user.name "<name>"
+git config user.email "<email>"
+```
+
+Never guess either value. For the email, suggest the address the department's gates name them by: an approval
+on their behalf is offered only when the two match.
+
+## 5. Install the plugin
 
 Run:
 
@@ -81,12 +95,12 @@ If `hg` is not in the list, read `extraKnownMarketplaces.human-gateway.source.re
 `.claude/settings.json`, ask the person to type `/plugin marketplace add <that repo>`, and look again. If that
 fails or the settings name no marketplace, ask them to contact whoever set up this repo, and stop.
 
-## 5. Hand over
+## 6. Hand over
 
 Ask the person to type `/reload-plugins`, and then `/hg:setup`. They have to type both themselves: you
 cannot start them.
 
 If the app says `/reload-plugins` is not available, or `/hg:setup` is not in the list when they type `/`, ask
 them to quit and reopen Claude Code in this folder and type `/hg:setup` in the new session. If it is still not
-there, ask them to install `hg` again as in step 4 with the scope for their user account, reopen, and try once
+there, ask them to install `hg` again as in step 5 with the scope for their user account, reopen, and try once
 more. If it is still missing, ask them to contact whoever set up this repo.

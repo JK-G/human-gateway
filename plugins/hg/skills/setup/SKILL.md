@@ -1,7 +1,7 @@
 ---
 name: setup
-description: Set up this folder as a department workspace - check tools, sign in to GitHub, create the skeleton. With --update, update the plugin.
-argument-hint: "[--update]"
+description: Set up this folder as a department workspace - check tools, sign in to GitHub, create the skeleton, set the git name and email. With --update, update the plugin.
+argument-hint: "[--update | --slack]"
 disable-model-invocation: true
 ---
 
@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 Talk to the person in plain words, in the language they write in or, once `.claude/hg.json` exists, in
 `language.content`. Assume they are not technical. `$ARGUMENTS` containing `--update` means: go straight
-to **Update** below.
+to **Update** below. `$ARGUMENTS` containing `--slack` means: go straight to **Slack** below.
 
 ## 1. Check the computer
 
@@ -79,10 +79,35 @@ hg-tool setup --name "<name>" --language <code> --timezone <zone> [--marketplace
 Add `--project <slug>` only if the person named a project. If `.claude/hg.json` already existed, run plain
 `hg-tool setup`, which only fills in what is missing. It never overwrites a file. Report what it created and skipped in one sentence, not line by line. Do not commit.
 
-## 6. Check again and say what is next
+## 6. Set the git identity
+
+A commit and `hg-tool gate approve` both need a name and an email in git. Run `git config user.email` and
+`git config user.name`. If either prints nothing, ask the person for the missing one, then set it for this
+repo only, without `--global`:
+
+```
+git config user.name "<name>"
+git config user.email "<email>"
+```
+
+Never guess either value. For the email, suggest the address the department's gates name them by: an approval
+on their behalf is offered only when the two match.
+
+## 7. Check again and say what is next
 
 Run `hg-tool doctor` and explain anything marked `ERROR`, then the `marketplace`, `scanner` and `gitignore` warnings if there are any. A `gitignore` warning means notes or files in `intake/` could reach git: treat it as important and offer to add the lines it names.
 A `journal` warning is normal on a new machine, so do not mention it.
+
+Three lines are about the Slack message that says a gate waits:
+
+- `notify`: the workflow `.github/workflows/hg-notify.yml` and the copies in `.github/hg/` it runs. A warning
+  means one is missing or differs from the plugin: `hg-tool setup --refresh-ci` puts them back.
+- `notify-secret`: whether GitHub has a repository secret named `HG_SLACK_WEBHOOK_URL`. A warning is not proof
+  that nothing is set: a secret the company set for the whole organization does not show up here.
+- `notify-run`: the last run of that workflow. An `OK` is not proof that a message arrived: a run without the
+  secret also ends green. Only the test message in the **Slack** step proves it.
+
+The two `notify-` lines appear only when the repo is on GitHub and `gh` is installed.
 
 Then tell the person what comes next:
 
@@ -92,13 +117,39 @@ Then tell the person what comes next:
    and from any links they paste.
 4. Run `/hg:today` to start the first day. Anyone joining later opens the repo and runs `/setup`.
 
+If the `notify-secret` line is a `WARN`, ask one question with AskUserQuestion before you finish: is this person
+the one who sets up the department's Slack messages, and are they not set up yet? On "yes", go on with
+**Slack**. On "no", skip it: in a repo that uses an organization secret, a colleague is not walked through it.
+
+## Slack
+
+For the person who owns the department repo on GitHub. The message says in the department's channel when a gate
+waits for approval, and lists every workday morning what waits. It needs GitHub Actions and one secret; the
+plugin holds no address.
+
+1. The workflow and the files in `.github/hg/` must be committed and pushed first. If `git status` shows them
+   as new or changed, say so and ask whether to commit and push them. Commit only when the person asks.
+2. Ask the person to create an incoming webhook for the department's channel in Slack and to copy its address.
+   This may need a Slack administrator.
+3. Ask them to open the link from the `notify-secret` line, enter the name `HG_SLACK_WEBHOOK_URL`, paste the
+   address as the value and save. **The address is never pasted into the chat, a file or a command.** If it was,
+   tell the person to delete that webhook in Slack and create a new one, because the old address is no longer
+   private.
+4. Run `hg-tool notify status`. When the `notify-secret` line is `OK`, run `gh workflow run hg-notify.yml -f mode=test`,
+   wait half a minute, run `hg-tool notify status` again and read `notify-run`. Without `gh`: the Actions tab on
+   GitHub, "hg notify", "Run workflow", mode `test`.
+5. Ask whether the test message arrived in the channel. That answer, not the green run, is the check.
+6. Tell the person that everyone in the department should set the channel in Slack to notify them on every new
+   message, or nobody is pinged.
+
 ## Update
 
 1. Note the repo's version: `hg-tool conf SCHEMA_VERSION`.
 2. Run `claude plugin update hg@human-gateway` and report whether it changed anything.
 3. Ask the person to type `/reload-plugins` and to tell you when it is done.
-4. Run `hg-tool setup --refresh-scan`, which replaces the copy of the scanner that CI uses and nothing else.
-   If it prints `updated`, tell the person that `.github/hg/scan.py` changed and needs committing. Do not commit.
+4. Run `hg-tool setup --refresh-ci`, which replaces the copies of the tools that CI uses in `.github/hg/` and
+   adds a missing workflow in `.github/workflows/`. It never overwrites a workflow and touches nothing else.
+   Report every file it printed as `updated` or `created` as a file that needs committing. Do not commit.
 5. Run `hg-tool doctor` and read the `config` line, which compares the repo's `schemaVersion` with the
    plugin's. If they match, say the update is finished. If they differ, say that this repo's configuration
    is older than the plugin and that the update must wait for a migration from whoever maintains the

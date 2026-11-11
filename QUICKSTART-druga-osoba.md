@@ -2,7 +2,7 @@
 
 Po tych krokach masz u siebie wiedzę działu i pytasz o nią Claude'a zwykłym językiem. Instalujesz jedną aplikację, wklejasz jedną wiadomość i wpisujesz kilka krótkich poleceń, o które Claude sam poprosi. Osobny terminal nie jest potrzebny.
 
-Potrzebujesz konta Claude oraz konta na github.com. Jeśli nie masz konta na GitHubie, załóż je i podaj jego nazwę osobie, od której masz tę instrukcję: musi mieć ono dostęp do repozytorium działu.
+Potrzebujesz płatnego konta Claude (Pro, Max, Ultra, Team lub Enterprise) oraz konta na github.com. Jeśli nie masz konta na GitHubie, załóż je i podaj jego nazwę osobie, od której masz tę instrukcję: musi mieć ono dostęp do repozytorium działu.
 
 Gdy w trakcie Claude poprosi o zgodę na polecenie, potwierdź. Tak samo, gdy system zapyta o zgodę na instalację programu.
 
@@ -26,15 +26,15 @@ Skopiuj całość, wklej w pole wiadomości i naciśnij Enter. Jeśli zamiast ad
 Zainstaluj git, GitHub CLI i Pythona 3, jeśli ich nie mam (na Windows przez winget, na Macu przez Homebrew, którego sam nie instaluj). Na Macu, zanim pobierzesz repozytorium, poproś mnie o wpisanie `gh auth login` w terminalu aplikacji, poczekaj, aż to zrobię, i uruchom `gh auth setup-git`. Potem pobierz przez HTTPS repozytorium <adres repozytorium> bezpośrednio do tego folderu i zapytaj mnie o imię i e-mail do gita. Gdy trzeba się zalogować do GitHuba albo ponownie otworzyć aplikację, powiedz mi dokładnie, co zrobić.
 ```
 
-Na Windows może otworzyć się okno przeglądarki z logowaniem do GitHuba. Zaloguj się w nim. Jeśli Claude poprosi o ponowne otwarcie aplikacji, zanim pobierze repozytorium, zrób to, wskaż ten sam folder i wklej wiadomość jeszcze raz.
+Na Windows aplikacja widzi świeżo zainstalowane programy dopiero po ponownym uruchomieniu. Jeśli Claude coś zainstalował, poprosi Cię o to, zanim pobierze repozytorium. Zamknij wtedy całą aplikację, nie tylko okno, otwórz ją, wskaż ten sam folder i wklej wiadomość jeszcze raz. Przy pobieraniu repozytorium może otworzyć się okno przeglądarki z logowaniem do GitHuba. Zaloguj się w nim.
 
 Na Macu potrzebny jest program Homebrew. Jeśli go nie masz, Claude Ci o tym powie i się zatrzyma, a wtedy napisz do osoby, od której masz tę instrukcję.
 
-Do GitHuba logujesz się na Macu, zanim Claude pobierze repozytorium. Gdy o to poprosi, kliknij **Terminal** na pasku tytułu sesji (albo w menu **⋮** obok), wpisz `gh auth login` i naciśnij Enter. Wybierz GitHub.com, HTTPS i logowanie w przeglądarce, a na stronie podaj kod, który pokaże terminal. Potem napisz Claude'owi, że gotowe.
+Do GitHuba logujesz się na Macu, zanim Claude pobierze repozytorium. Gdy o to poprosi, kliknij **Terminal** na pasku tytułu sesji albo naciśnij Ctrl i klawisz `` ` `` (pod Esc), wpisz `gh auth login` i naciśnij Enter. Wybierz GitHub.com, HTTPS i logowanie w przeglądarce, a na stronie podaj kod, który pokaże terminal. Potem napisz Claude'owi, że gotowe.
 
 ## 4. Otwórz aplikację ponownie i wpisz `/setup`
 
-Gdy Claude skończy, zamknij całą aplikację, nie samą rozmowę. Otwórz ją znowu i wskaż ten sam folder, jak w kroku 2. Jeśli aplikacja zapyta, czy ufasz temu folderowi, potwierdź. Potem wpisz:
+Gdy Claude skończy, zamknij całą aplikację, nie tylko okno. Otwórz ją znowu i wskaż ten sam folder, jak w kroku 2. Jeśli aplikacja zapyta, czy ufasz temu folderowi, potwierdź. Potem wpisz:
 
 ```
 /setup
@@ -71,15 +71,17 @@ Ręcznie wpisujesz tylko dwa polecenia, a Claude powie, kiedy:
 
 Wrzuć go do folderu `intake/` w folderze działu i wpisz samo `/hg:init`, bez dopisków. Link zamiast pliku dopisz do `intake/links.md`.
 
-Claude przeczyta tylko to, co nowe. Zawsze zapyta, kto może czytać repozytorium: jeśli nic się nie zmieniło, wybierz pierwszą odpowiedź. Zanim zapisze strony wiki, pokaże Ci listę do akceptacji.
+Claude przeczyta tylko to, co nowe. O to, kto może czytać repozytorium, zapyta tylko wtedy, gdy nowy materiał może to zmienić. Zanim zapisze strony wiki, pokaże Ci listę do akceptacji.
 
 ### Coś trzeba zatwierdzić
 
-Bramka to zapis, że wskazane pliki zostały zatwierdzone, i kto za nie odpowiada. Gdy któryś plik się zmieni, bramka otwiera się ponownie i Claude pokaże to w podsumowaniu dnia.
+Bramka to zapis, że wskazane pliki zostały zatwierdzone, i kto za nie odpowiada. Gdy któryś plik się zmieni, bramka otwiera się ponownie i Claude pokaże to w podsumowaniu dnia. Otwiera się też wtedy, gdy zmieniło się źródło w innym systemie, które bramka wskazuje, na przykład zadanie albo tablica. Przed zatwierdzeniem Claude sprawdza te źródła albo pyta Cię, czy coś się w nich zmieniło.
 
-Po wpisaniu `/hg:gate` możesz zatwierdzić sam albo poprosić Claude'a, żeby zatwierdził w Twoim imieniu. Za treść w obu przypadkach odpowiadasz Ty, a zatwierdzenie przez Claude'a zobaczysz w swoim podsumowaniu dnia.
+Jeśli dział ma ustawione wiadomości na Slacku, o bramce czekającej na zatwierdzenie dowiesz się też z kanału działu. Wtedy otwórz Claude'a w folderze działu i wpisz `/hg:gate`. Ustaw w Slacku powiadomienia tego kanału na każdą nową wiadomość. Poza tym dla Slacka niczego nie instalujesz ani nie ustawiasz.
 
-Reszta działu zobaczy Twoje zmiany dopiero wtedy, gdy poprosisz Claude'a o ich zapisanie i wysłanie.
+Po wpisaniu `/hg:gate` możesz zatwierdzić sam. Jeśli to Ty odpowiadasz za bramkę, możesz też poprosić Claude'a, żeby zatwierdził w Twoim imieniu. Za treść w obu przypadkach odpowiadasz Ty, a zatwierdzenie przez Claude'a zobaczysz w swoim podsumowaniu dnia.
+
+Reszta działu zobaczy Twoje zmiany dopiero wtedy, gdy poprosisz Claude'a o ich zapisanie i wysłanie. Dotyczy to także tego, co Claude zapisał o sprawdzonych źródłach.
 
 ## Gdy coś pójdzie nie tak
 

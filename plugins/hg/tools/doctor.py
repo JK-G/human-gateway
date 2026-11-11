@@ -143,10 +143,21 @@ def check_scanner(f, root):
         f.add("OK", "scanner", "the copy CI uses matches the plugin")
 
 
+def check_notify(f, root):
+    """The Slack notifier: its workflow and copies, then the secret by name and the last run, through gh (notify.checks)."""
+    import notify  # imported here: only this check needs it
+    for level, check, message in notify.checks(root):
+        f.add(level, check, message)
+
+
 def check_gate_names(f, root):
     ignored = gate.ignored_gate_files(root)
     if ignored:
         f.add("WARN", "gates", "%d file(s) in gates/ ignored: the name is not a gate id" % ignored)
+    unreadable = gate.source_unreadable_count(root)
+    if unreadable:
+        f.add("WARN", "gates", "%d observation file(s) in gates/*.obs/ ignored: not a recorded check this tool can read. "
+              "Only hg-tool gate observe writes there." % unreadable)
 
 
 def check_journal(f, root):
@@ -174,6 +185,7 @@ def main(argv):
         check_marketplace(f, root)
         check_permissions(f, root)
         check_scanner(f, root)
+        check_notify(f, root)
         check_gate_names(f, root)
         check_journal(f, root)
     return 1 if f.errors else 0
