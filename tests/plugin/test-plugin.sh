@@ -106,7 +106,7 @@ check 'd["next_workday"]=="2026-02-09"' "Friday's next workday is Monday"
 
 printf '%s\n' 'vault/daily/' 'intake/' 'DASHBOARD.md' '.gateway/' '.claude/state/' '.claude/settings.local.json' > "$W/.gitignore"
 out="$(CLAUDE_PROJECT_DIR="$W" hg doctor)"; rc=$?
-if printf '%s' "$out" | grep -q '^ERROR.*\(git\|gh\)'; then
+if printf '%s' "$out" | grep -q -E '^ERROR.*(git|gh)'; then
   echo "n/a  - doctor pass not asserted: git or gh missing on this machine"
 else
   [ $rc -eq 0 ] && ok "doctor passes on a good workspace" || bad "doctor passes on a good workspace (rc=$rc)" "$out"

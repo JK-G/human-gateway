@@ -80,7 +80,7 @@ out="$(git -C "$W" add "$RAW/meetings/2026-01-15-tracked.md" 2>&1)"; rc=$?
 t '[ $rc -ne 0 ] && [ -z "$(git -C "$W" ls-files vault/raw/acme-notes)" ]' "git add of the destination fails without --force" "rc=$rc $out"
 
 cp "$W/.gitignore" "$TMP/gitignore.bak"
-grep -v '^vault/raw/\*$\|^!vault/raw/README.md$' "$TMP/gitignore.bak" > "$W/.gitignore"
+grep -v -E '^vault/raw/\*$|^!vault/raw/README\.md$' "$TMP/gitignore.bak" > "$W/.gitignore"
 new intake/unignored.md 'notes'
 out="$(add intake/unignored.md unignored 2>&1)"; rc=$?
 { [ $rc -eq 1 ] && has "$out" "is not kept out of git in this folder" && has "$out" "/hg:setup"; } && ok "refused: the destination is not ignored by git" || bad "refused: the destination is not ignored by git (rc=$rc)" "$out"

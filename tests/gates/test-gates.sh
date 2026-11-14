@@ -101,7 +101,7 @@ lock pricing 'len(d["approvals"])==1 and d["approvals"][0]["by"]=="reviewer@acme
 lock pricing 'd["approvals"][0]["request"]=="zatwierdzam /d/ceny w C:\\plan"' "the request reaches the record unchanged"
 lock pricing 'all(v.startswith("sha256:") and len(v)==71 for v in d["approvals"][0]["inputs"].values())' "inputs carry sha256 digests"
 grep -q '"op":"gate_approve"' "$W/vault/log.jsonl" && ok "gate_approve is logged" || bad "gate_approve is logged"
-grep -q 'reviewer\|zatwierdzam' "$W/vault/log.jsonl" && bad "the log holds neither names nor the request" || ok "the log holds neither names nor the request"
+grep -q -E 'reviewer|zatwierdzam' "$W/vault/log.jsonl" && bad "the log holds neither names nor the request" || ok "the log holds neither names nor the request"
 grep -qE 'status|approved' "$W/gates/pricing.md" && bad "the status is not stored in the gate file" || ok "the status is not stored in the gate file"
 commit approved
 

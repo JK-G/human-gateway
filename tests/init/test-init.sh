@@ -55,7 +55,7 @@ says "$SKILL" 'When it holds roles, do not ask again' "saved readers are not ask
 says "$SKILL" 'points to a different audience' "a different audience brings the question back"
 says "$SKILL" 'name the saved roles' "the closing report names roles it did not ask about"
 says "$SKILL" 'hg-tool conf-set project <slug>' "saves a new project through the tool"
-out="$(grep -n 'with Edit\|Edit on\|Edit `' "$SKILL")"
+out="$(grep -n -E 'with Edit|Edit on|Edit `' "$SKILL")"
 t '[ -z "$out" ]' "the skill needs no Edit on hg.json" "$out"
 says "$SKILL" 'Wait for each ingest to finish before starting the next' "ingests do not overlap"
 says "$SKILL" 'hg:wiki-librarian' "wiki drafts go through the librarian"
