@@ -39,7 +39,10 @@ while IFS= read -r t; do
     if [ "$VERBOSE" = 1 ]; then sed 's/^/      /' "$log"; else grep '^NOTE: ' "$log" | sed 's/^/      /'; fi
   else
     FAIL=$((FAIL + 1)); FAILED="$FAILED $rel"; echo "FAIL  $rel (exit $rc)"
-    sed 's/^/      /' "$log" | tail -n 40
+    # The failed assertions first, each with the lines printed under it: in a long suite they are not in the tail.
+    grep -A 8 '^FAIL - ' "$log" | grep -v '^ok   - ' | head -n 120 | sed 's/^/      /'
+    echo "      ... last lines:"
+    sed 's/^/      /' "$log" | tail -n 15
   fi
 done <<< "$TESTS"
 
