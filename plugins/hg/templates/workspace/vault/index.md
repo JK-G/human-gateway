@@ -25,7 +25,7 @@ One knowledge base, organized by type; `project` is a frontmatter value. **0 pag
 ## Layers
 
 - `wiki/`: curated pages by type. Contract: [[schema]].
-- `raw/`: immutable sources per project (ingest-only).
+- `raw/`: each person's own source files, on their machine only, never in git. Pages cite them by reference.
 - `journal/`: append-only session journal, distilled into `wiki/memory/`.
 - `wiki/memory/index.md`: shared memory, loaded into every session.
 - `log.jsonl`: machine op log.

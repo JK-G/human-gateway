@@ -5,7 +5,7 @@ project: acme-notes
 temporal: living
 status: active
 last_verified: 2026-01-20
-sources: ["raw/acme-notes/meetings/example--2026-01-15-kickoff.md"]
+sources: ["src:meetings:2026-01-15:a5b20b6d"]
 aliases: ["offline sync", "offline mode", "sync engine", "local-first sync"]
 summary: "How Acme Notes keeps notes editable without a connection and reconciles edits made on several devices."
 canonical_for: [acme-notes-sync-conflict-policy]

@@ -7,7 +7,8 @@ files here. The list lives in `.claude/hg.json` as `forbiddenWritePaths`; the de
 
 | Path | Why |
 |---|---|
-| `vault/raw/` | Immutable sources. Append-only: only `hg-tool raw-add`, run by `/hg:import-source`, adds a new source; nothing edits or deletes an existing one. |
+| `vault/raw/` | A person's own source files. On this machine only, outside git. Append-only: only `hg-tool raw-add`, run by `/hg:import-source`, adds one; nothing edits or deletes one. |
+| `vault/inbox/`, `intake/` | Not forbidden to write, but private: a person's own files, on this machine only, never tracked. |
 | `vault/journal/` | Written only by the SessionEnd hook. |
 | `gates/` | Written only by `hg-tool gate`. |
 | `.obsidian/` | Editor configuration and per-device state. |
@@ -18,15 +19,31 @@ files here. The list lives in `.claude/hg.json` as `forbiddenWritePaths`; the de
 `sed -i`, redirects or `install` whose target is a forbidden path; interpreters (`python -c`,
 `node -e`, `sh -c`) or generated scripts that write into one.
 
-**Git hygiene.** Move files with `git mv`, and into `vault/raw/` only with `hg-tool raw-add`. Never force push. Never skip hooks. Commit only when
-the person asks.
+**Git hygiene.** Move tracked files with `git mv`, never into a private folder (`vault/raw/`, `vault/inbox/`,
+`vault/daily/`, `intake/`, `.gateway/`); a file enters `vault/raw/` only through `hg-tool raw-add`. Never
+`git add --force`, never `git clean`, never `git stash --all`, never `git update-index`: each of them puts a
+person's own files into git or deletes them, and they have no other copy. Never force push. Never skip hooks.
 
-**Scan before every commit.** History cannot be cleaned, and CI runs only after the push. Stage the
-files, run `hg-tool scan --git`, and on exit 1 do not commit: show the findings to the person.
+**A person's own files.** The private folders stay on this machine and out of git. No tracked file (a page, a
+gate, the log, a context map) names a file in them: a page cites a raw file by its source reference, which
+`hg-tool raw-ref <path>` prints. A gate input is a tracked file, never a raw file.
+
+**Publishing.** Before any commit in a department repository, run hg-tool publish check, show the person the
+preview it writes, and commit only through the commit step of /hg:publish, after the person's own yes in this
+session. History cannot be cleaned, and CI runs only after the push. `hg-tool publish check` runs the scanner
+(`hg-tool scan`) and the other checks on what the commit would carry, and the commit step asks the person twice:
+the question in `/hg:publish`, then Claude Code's own prompt for that command. Nothing enforces this rule:
+`git commit` and `git push` still work, so keeping to it is your part. While a merge waits the check refuses; a
+merge is concluded with git, after the person's yes.
+
+**Cleaning.** Before you draft a page from a person's own file, or change any tracked file from one, read
+`${CLAUDE_PLUGIN_ROOT}/rules/cleaning.md`.
 
 **Secrets.** Never read `.env` files or any credentials file. Secrets come only from environment
 variables. Never print, log or commit a token or a webhook URL. A webhook address goes only into GitHub Secrets,
-pasted by the person in the browser; it is never pasted into a session, a file or a command.
+pasted by the person in the browser; it is never pasted into a session, a file or a command. The address of the
+department's channel is the Actions secret `HG_NOTIFY_WEBHOOK_URL`, whichever messenger `nodes.messenger.type`
+names.
 
 **What never enters git:** `${CLAUDE_PLUGIN_ROOT}/rules/never-in-git.md`.
 

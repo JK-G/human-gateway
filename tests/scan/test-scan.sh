@@ -456,16 +456,57 @@ t '[ $rc -eq 0 ]' "a fresh workspace passes its own scan" "$out"
 # CI has no plugin: the copy alone, started as the workflow starts it, away from every other tool.
 out="$(cd "$W" && $PY .github/hg/scan.py --git 2>&1)"; rc=$?
 t '[ $rc -eq 0 ]' "the copy runs on its own" "$out"
-printf 'a %s\n' "$gh" > "$W/vault/inbox/note.md"
-git -C "$W" add vault/inbox/note.md
+printf 'a %s\n' "$gh" > "$W/vault/wiki/note.md"
+git -C "$W" add vault/wiki/note.md
 out="$(cd "$W" && $PY .github/hg/scan.py --git 2>&1)"; rc=$?
 t '[ $rc -eq 1 ]' "the copy stops a tracked secret" "$out"
-printf 'Budget %s PLN, NIP: %s\n' "$big" "$nip" > "$W/vault/inbox/amounts.md"
-out="$(cd "$W" && $PY .github/hg/scan.py vault/inbox/amounts.md 2>&1)"; rc=$?
+printf 'Budget %s PLN, NIP: %s\n' "$big" "$nip" > "$W/vault/wiki/amounts.md"
+out="$(cd "$W" && $PY .github/hg/scan.py vault/wiki/amounts.md 2>&1)"; rc=$?
 t '[ $rc -eq 0 ]' "the copy knows amounts and company numbers" "$out"
-rm "$W/vault/inbox/amounts.md"
+rm "$W/vault/wiki/amounts.md"
 has "$out" "$gh" && bad "the copy masks it too" "$out" || ok "the copy masks it too"
-git -C "$W" rm -q --cached vault/inbox/note.md; rm "$W/vault/inbox/note.md"
+git -C "$W" rm -q --cached vault/wiki/note.md; rm "$W/vault/wiki/note.md"
+
+# --- a tracked file in a private folder ------------------------------------------------------------
+mkdir -p "$W/vault/raw/acme-notes/meetings"
+printf 'notes\n' > "$W/vault/raw/acme-notes/meetings/2026-11-12-kickoff.md"
+git -C "$W" add -f vault/raw/acme-notes/meetings/2026-11-12-kickoff.md
+out="$(cd "$W" && hg scan --git 2>&1)"; rc=$?
+{ [ $rc -eq 1 ] && printf '%s\n' "$out" | grep -qx 'vault/raw/acme-notes/meetings/2026-11-12-kickoff.md:1'$'\t''private'$'\t''stays on one machine'; } \
+  && ok "--git reports a force-added raw file as private" || bad "--git reports a force-added raw file as private (rc=$rc)" "$out"
+out="$(cd "$W" && hg scan --git vault/raw 2>&1)"; rc=$?
+t '[ $rc -eq 1 ] && has "$out" private' "--git with a PATH reports it too" "$out"
+out="$(cd "$W/vault" && hg scan --git raw 2>&1)"; rc=$?
+has "$out" 'vault/raw/acme-notes/meetings/2026-11-12-kickoff.md:1'$'\t''private' && ok "--git from a subfolder names it repo-relative" || bad "--git from a subfolder names it repo-relative" "$out"
+out="$(cd "$W" && $PY .github/hg/scan.py --git 2>&1)"; rc=$?
+{ [ $rc -eq 1 ] && has "$out" 'vault/raw/acme-notes/meetings/2026-11-12-kickoff.md:1'$'\t''private'; } && ok "the copy in .github/hg reports the same" || bad "the copy in .github/hg reports the same" "$out"
+out="$(cd "$W" && hg scan vault/raw/acme-notes/meetings/2026-11-12-kickoff.md 2>&1)"; rc=$?
+t '[ $rc -eq 0 ] && ! has "$out" private' "a scan of a path still reads a raw file's content" "$out"
+printf 'a %s\n' "$mail" > "$W/vault/raw/acme-notes/meetings/2026-11-12-kickoff.md"
+out="$(cd "$W" && hg scan vault/raw 2>&1)"; rc=$?
+t '[ $rc -eq 1 ] && has "$out" pii && ! has "$out" private' "a scan of a raw folder finds contact data, and nothing private" "$out"
+git -C "$W" rm -q -f --cached vault/raw/acme-notes/meetings/2026-11-12-kickoff.md
+mkdir -p "$W/vault/inbox" "$W/vault/daily" "$W/intake"
+printf 'x\n' > "$W/vault/inbox/n.md"; printf 'x\n' > "$W/vault/daily/2026-11-12.md"; printf 'x\n' > "$W/intake/cennik.md"
+git -C "$W" add -f vault/inbox/n.md vault/daily/2026-11-12.md intake/cennik.md
+out="$(cd "$W" && hg scan --git 2>&1)"; rc=$?
+n="$(printf '%s\n' "$out" | grep -c $'\tprivate\t')"
+{ [ $rc -eq 1 ] && [ "$n" -eq 3 ]; } && ok "--git reports a tracked inbox note, a tracked daily note and a tracked intake file as private" || bad "--git reports a tracked inbox note, a tracked daily note and a tracked intake file as private (rc=$rc n=$n)" "$out"
+git -C "$W" rm -q --cached vault/inbox/n.md vault/daily/2026-11-12.md intake/cennik.md
+for f in vault/raw/README.md vault/inbox/_template.md vault/daily/README.md intake/README.md; do
+  git -C "$W" ls-files --error-unmatch "$f" >/dev/null 2>&1 || bad "the template tracks $f"
+done
+out="$(cd "$W" && hg scan --git 2>&1)"; rc=$?
+t '[ $rc -eq 0 ] && ! has "$out" private' "the four kept files are not reported" "$out"
+V="$TMP/renamed"
+mkdir -p "$V/.claude" "$V/kb/raw/acme-notes/meetings" "$V/vault/raw"
+git -C "$V" init -q
+printf '{"schemaVersion": 1, "paths": {"vault": "kb"}}\n' > "$V/.claude/hg.json"
+printf 'x\n' > "$V/kb/raw/acme-notes/meetings/2026-11-12-a.md"; printf 'x\n' > "$V/vault/raw/plain.md"; printf 'x\n' > "$V/kb/raw/README.md"
+git -C "$V" add -A
+out="$(cd "$V" && CLAUDE_PROJECT_DIR="$V" hg scan --git 2>&1)"; rc=$?
+{ [ $rc -eq 1 ] && has "$out" 'kb/raw/acme-notes/meetings/2026-11-12-a.md:1' && ! has "$out" 'vault/raw/plain.md' && ! has "$out" 'kb/raw/README.md'; } \
+  && ok "a renamed vault folder moves the private folders with it" || bad "a renamed vault folder moves the private folders with it (rc=$rc)" "$out"
 
 status() { hg doctor --root "$W" | grep $'\tscanner\t' | cut -f1; }
 t '[ "$(status)" = OK ]' "doctor accepts a matching copy" "$(hg doctor --root "$W")"
@@ -510,11 +551,11 @@ t '[ $rc -eq 0 ]' "the accountable person's address in a gate record passes" "$o
 printf '\nwrite to %s\n' "$mail" >> "$R/gates/launch.md"
 out="$(cd "$R" && hg scan --git 2>&1)"; rc=$?
 { [ $rc -eq 1 ] && has "$out" "gates/launch.md"; } && ok "any other address in a gate file is flagged" || bad "any other address in a gate file is flagged (rc=$rc)" "$out"
-printf 'accountable: %s\n' "$person" > "$R/vault/inbox/note.md"
-git -C "$R" add vault/inbox/note.md
+printf 'accountable: %s\n' "$person" > "$R/vault/projects/acme-notes/note.md"
+git -C "$R" add vault/projects/acme-notes/note.md
 out="$(cd "$R" && hg scan --git 2>&1)"
-has "$out" "vault/inbox/note.md" && ok "the field is left out only in gates/" || bad "the field is left out only in gates/" "$out"
-git -C "$R" rm -q --cached vault/inbox/note.md; rm "$R/vault/inbox/note.md"
+has "$out" "vault/projects/acme-notes/note.md" && ok "the field is left out only in gates/" || bad "the field is left out only in gates/" "$out"
+git -C "$R" rm -q --cached vault/projects/acme-notes/note.md; rm "$R/vault/projects/acme-notes/note.md"
 mkdir -p "$R/vault/projects/acme-notes/gates" "$TMP/nogit/gates"
 scans() {  # scans <label> <file> <text> <kind>: the text in that file is a finding of that kind
   local out rc; printf '%s\n' "$3" > "$2"
@@ -538,8 +579,9 @@ t '[ $rc -eq 0 ]' "the plain accountable address still passes at the top" "$out"
 rm -f "$top"
 
 # --- wiring and text --------------------------------------------------------------------------
-grep -q 'hg-tool scan --git' "$PLUGIN/rules/boundaries.md" && ok "the rules scan before every commit" || bad "the rules scan before every commit"
-grep -q 'hg-tool scan --git' "$PLUGIN/tools/session_start.py" && ok "the session start says so too" || bad "the session start says so too"
+grep -q 'hg-tool publish check' "$PLUGIN/rules/boundaries.md" && ok "the rules check before every commit (the publish check runs the scan)" || bad "the rules check before every commit (the publish check runs the scan)"
+out="$(CLAUDE_PROJECT_DIR="$R" hg session-start)"
+has "$out" 'run hg-tool publish check' && ok "the session start says so too" || bad "the session start says so too" "$out"
 printf 'x\n' > "$R/prod.env"; git -C "$R" add -f prod.env
 out="$(cd "$R" && hg scan --git 2>&1)"; rc=$?
 { [ $rc -eq 1 ] && has "$out" "prod.env"; } && ok "the scan before a commit stops a staged env file" || bad "the scan before a commit stops a staged env file (rc=$rc)" "$out"

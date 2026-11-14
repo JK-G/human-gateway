@@ -29,12 +29,23 @@ usage: hg-tool <command> [args]
   log --op <op> --agent <id> [...]     append to the event log
   gate new|list|approve|note|source|observe [...]
                                        approvals that reopen when their inputs or outside sources change
-  notify push|digest|test|status [...] preview the Slack messages, or check the notifier's setup
+  notify push|digest|test|status [...] preview the messages to the department's channel, or check the notifier's setup
+  nodes [--json] [--offline]           the five nodes (messenger, project platforms, calendar, agent, backup)
+  nodes declare messenger slack|teams|webhook|none | nodes declare projects <key>[,<key>...]|none
+                                       declare a node in .claude/hg.json
+  nodes watch <link> [--json]          the platform of a link and the field proposed as its mark
   conf KEY | conf --sh                 read .claude/hg.json
   conf-set readers "role, role"        save who may read this repo, as roles
   conf-set project <slug>              add a project to .claude/hg.json
+  conf-set word '<entry>'              add a word, a stem with * or a phrase to publish.words
   raw-add <file> --project P --kind K --date YYYY-MM-DD --slug S
-                                       bring one file into vault/raw/; never overwrites
+                                       bring one file into vault/raw/ on this computer; never overwrites
+  raw-ref <path> | --find REF | --say REF | --list [--json]
+                                       the source reference of a raw file, and back
+  publish check [--json] [PATH ...]    stage, check and preview what a commit would carry out of this computer
+  publish leftout <file.json>          store the list of what a model left out of the pages it wrote
+  publish commit <id>                  commit the bundle the preview showed (Claude Code asks first when the ask rule is in settings.json)
+  publish withdraw <page>              remove a published wiki page from the current version
   registry [--root DIR] <subcommand>   projects, types, frontmatter, dump
   canonicalize [--hash] <file>         canonical form of a page, or its hash
   sha1 <file>                          plain sha1 of a file's bytes
@@ -135,6 +146,11 @@ case "$cmd" in
     fi
     exec $HG_PYTHON "$TOOLS/notify.py" "$@"
     ;;
+  nodes)
+    # A link to watch is free text: Git Bash would rewrite a part that looks like a path.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/nodes.py" "$@"
+    ;;
   setup)
     # --name is free text and --root may be D:\x, D:/x or /d/x: the tool normalizes it itself.
     export MSYS2_ARG_CONV_EXCL='*'
@@ -154,6 +170,16 @@ case "$cmd" in
     # The file may be D:\x, D:/x or /d/x: the tool normalizes it itself.
     export MSYS2_ARG_CONV_EXCL='*'
     exec $HG_PYTHON "$TOOLS/raw_add.py" "$@"
+    ;;
+  raw-ref)
+    # The path may be D:\x, D:/x or /d/x: the tool normalizes it itself.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/raw_ref.py" "$@"
+    ;;
+  publish)
+    # A PATH may be D:\x, D:/x or /d/x: the tool normalizes it itself.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/publish.py" "$@"
     ;;
   conf) exec $HG_PYTHON "$TOOLS/kit_registry.py" conf "$@" ;;
   registry) exec $HG_PYTHON "$TOOLS/kit_registry.py" "$@" ;;

@@ -12,7 +12,8 @@ If it contains a decision, say who decided (by role) and when.
 <!--
 How the inbox works:
 - Copy this file to inbox/<anything>.md and fill it in. This _template.md itself is never ingested.
-- /hg:ingest --inbox classifies each file, brings it into raw/<project>/... with /hg:import-source, ingests it and
-  removes it from inbox/. You can also run /hg:ingest <file> yourself.
-- Do not paste personal data of customers or other private individuals. Anonymize first.
+- The inbox is private: it stays on this computer and is never in git.
+- /hg:ingest --inbox classifies each file, moves it into raw/<project>/... on this computer with /hg:import-source,
+  ingests it and removes it from inbox/. You can also run /hg:ingest <file> yourself.
+- Nothing here leaves this computer until a page made from it is published.
 -->

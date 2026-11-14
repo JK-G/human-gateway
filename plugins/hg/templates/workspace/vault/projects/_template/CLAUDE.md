@@ -2,7 +2,7 @@
 
 > **Slug:** `__SLUG__` · **Created:** __DATE__
 > **Knowledge:** durable knowledge lives in `vault/wiki/<type>/` with `project: __SLUG__` (contract:
-> `vault/schema.md`). Sources go to `vault/raw/__SLUG__/`.
+> `vault/schema.md`). Raw sources live in `vault/raw/__SLUG__/` on the computer of whoever brought them in.
 
 ## Project
 

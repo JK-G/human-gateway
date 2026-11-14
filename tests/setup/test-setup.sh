@@ -14,6 +14,7 @@ PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); echo "ok   - $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "FAIL - $1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/       /'; }
 t()    { if eval "$1"; then ok "$2"; else bad "$2" "${3:-}"; fi; }
+has()  { printf "%s" "$1" | grep -qF -- "$2"; }
 fingerprint() {  # one hash over every path and its bytes, .git excluded
   $PY -c 'import hashlib,pathlib,sys
 r=pathlib.Path(sys.argv[1])
@@ -68,10 +69,11 @@ printf '%s' "$out" | grep -q $'^WARN\tmarketplace\t' && ok "doctor warns when no
 printf '%s' "$out" | grep -q $'^WARN\tgitignore' && bad "doctor accepts the template's .gitignore" "$out" || ok "doctor accepts the template's .gitignore"
 
 ignored() { git -C "$W" check-ignore -q "$1"; }
-for f in vault/daily/2026-01-30.md intake/report.xlsx DASHBOARD.md .gateway/x .claude/state/x .claude/settings.local.json .env .env.local prod.env cert.pem store.p12 store.pfx; do
+for f in vault/daily/2026-01-30.md intake/report.xlsx DASHBOARD.md .gateway/x .claude/state/x .claude/settings.local.json .env .env.local prod.env cert.pem store.p12 store.pfx \
+         vault/raw/acme-notes/meetings/x.md vault/inbox/n.md; do
   ignored "$f" && ok "ignored: $f" || bad "ignored: $f"
 done
-for f in vault/daily/README.md intake/README.md vault/wiki/concepts/x.md gates/a.md .claude/hg.json; do
+for f in vault/daily/README.md intake/README.md vault/wiki/concepts/x.md gates/a.md .claude/hg.json vault/raw/README.md vault/inbox/_template.md; do
   ignored "$f" && bad "tracked: $f" || ok "tracked: $f"
 done
 for f in vault/log.jsonl vault/journal/2026-01-30.md; do
@@ -82,6 +84,7 @@ done
 settings="$(cat "$W/.claude/settings.json")"
 printf '%s' "$settings" | jtrue 'd["permissions"]["allow"]==["Bash(hg-tool *)"]' && ok "settings allow hg-tool" || bad "settings allow hg-tool" "$settings"
 printf '%s' "$settings" | jtrue 'all(r in d["permissions"]["deny"] for r in ["Edit(vault/raw/**)","Edit(gates/**)","Bash(git push --force*)","Bash(rm -rf ~/)"])' && ok "settings deny the protected paths" || bad "settings deny the protected paths" "$settings"
+printf '%s' "$settings" | jtrue 'all(r in d["permissions"]["deny"] for r in ["Bash(git add -f*)","Bash(git add --f*)","Bash(git add * -f*)","Bash(git add * --f*)","Bash(git clean *)","Bash(git stash -a*)","Bash(git stash --all*)","Bash(git stash * -a*)","Bash(git stash * --all*)","Bash(git update-index *)"])' && ok "settings deny the git forms that leak or delete raw files" || bad "settings deny the git forms that leak or delete raw files" "$settings"
 printf '%s' "$settings" | jtrue 'not any(r.startswith("Write(") for r in d["permissions"]["deny"])' && ok "no Write() deny rules: Claude Code matches file writes against Edit() only" || bad "no Write() deny rules: Claude Code matches file writes against Edit() only" "$settings"
 printf '%s' "$settings" | jtrue 'd["enabledPlugins"]=={"hg@human-gateway":True} and "extraKnownMarketplaces" not in d' && ok "plugin enabled, no marketplace unless asked" || bad "plugin enabled, no marketplace unless asked" "$settings"
 
@@ -143,14 +146,41 @@ printf '%s' "$settings" | jtrue 'd["extraKnownMarketplaces"]["human-gateway"]["s
 out="$(hg doctor --root "$M")"
 printf '%s' "$out" | grep -q $'^OK\tmarketplace\t' && ok "doctor sees the marketplace" || bad "doctor sees the marketplace" "$out"
 printf '%s' "$(cat "$M/.claude/hg.json")" | jtrue 'd["projects"]==["acme-notes"] and d["projectName"]=="market" and d["language"]["content"]=="en"' && ok "--project and defaults reach hg.json" || bad "--project and defaults reach hg.json" "$(cat "$M/.claude/hg.json")"
-for f in vault/projects/acme-notes/CLAUDE.md vault/projects/acme-notes/PRD.md vault/projects/acme-notes/planning/.gitkeep \
-         vault/raw/acme-notes/meetings/.gitkeep vault/raw/acme-notes/snapshots/.gitkeep; do
+for f in vault/projects/acme-notes/CLAUDE.md vault/projects/acme-notes/PRD.md vault/projects/acme-notes/planning/.gitkeep; do
   [ -f "$M/$f" ] && ok "project: $f" || bad "project: $f" "$out"
 done
+t '[ ! -e "$M/vault/raw/acme-notes" ]' "--project creates no folder under vault/raw/" "$(ls -R "$M/vault/raw")"
 left="$(grep -rlE '__(SLUG|NAME|DATE)__' "$M/vault/projects/acme-notes")"
 t '[ -z "$left" ]' "project placeholders are filled" "$left"
 grep -q '^# Acme Notes: project context$' "$M/vault/projects/acme-notes/CLAUDE.md" && ok "project name comes from the slug" || bad "project name comes from the slug"
 out="$(hg index --root "$M" --check)"; t '[ $? -eq 0 ]' "index check passes with a project" "$out"
+
+# --- doctor and the raw files on this computer ---------------------------------------------------
+git -C "$M" -c user.email=t@example.com -c user.name=t add -A; git -C "$M" -c user.email=t@example.com -c user.name=t commit -q -m base
+mkdir -p "$M/vault/raw/acme-notes/meetings"
+printf 'one\n' > "$M/vault/raw/acme-notes/meetings/2026-01-15-one.md"; printf 'two\n' > "$M/vault/raw/acme-notes/meetings/2026-01-16-two.md"
+out="$(hg doctor --root "$M")"; rc=$?
+printf '%s\n' "$out" | grep -qF $'OK\traw\t2 source file(s) on this computer, outside git, with no backup. 2 of them are not cited by any page yet.' \
+  && ok "doctor reports the raw files on this computer and that they have no backup" || bad "doctor reports the raw files on this computer and that they have no backup" "$out"
+printf '%s\n' "$out" | grep -q $'^ERROR\traw' && bad "doctor has no raw error while raw files stay out of git" "$out" || ok "doctor has no raw error while raw files stay out of git"
+printf -- '---\nsources: ["src:meetings:2026-01-10:0123abcd"]\n---\n' > "$M/vault/wiki/concepts/acme-notes--cited.md"
+out="$(hg doctor --root "$M")"
+printf '%s\n' "$out" | grep -qF $'OK\traw\t1 reference(s) in tracked pages point to sources that are not on this computer.' \
+  && ok "doctor counts references to sources that are not here" || bad "doctor counts references to sources that are not here" "$out"
+rm -f "$M/vault/wiki/concepts/acme-notes--cited.md"
+git -C "$M" add -f vault/raw/acme-notes/meetings/2026-01-15-one.md
+out="$(hg doctor --root "$M")"; rc=$?
+{ [ $rc -eq 1 ] && printf '%s\n' "$out" | grep -qF $'ERROR\traw\t1 file(s) in a folder that must stay out of git are tracked by git.'; } \
+  && ok "doctor fails when a raw file is tracked" || bad "doctor fails when a raw file is tracked (rc=$rc)" "$out"
+git -C "$M" rm -q --cached vault/raw/acme-notes/meetings/2026-01-15-one.md
+cp "$M/.gitignore" "$TMP/gitignore.bak"
+grep -v 'vault/raw/' "$TMP/gitignore.bak" > "$M/.gitignore"
+out="$(hg doctor --root "$M")"; rc=$?
+{ [ $rc -eq 1 ] && printf '%s\n' "$out" | grep -qF $'ERROR\traw\tvault/raw/ is not ignored by git here, so a raw file could be committed. Run /hg:setup.'; } \
+  && ok "doctor fails when vault/raw/ is not ignored" || bad "doctor fails when vault/raw/ is not ignored (rc=$rc)" "$out"
+printf '%s\n' "$out" | grep -q $'^WARN\tgitignore\t.*vault/raw/' && ok "the gitignore check names vault/raw/" || bad "the gitignore check names vault/raw/" "$out"
+cp "$TMP/gitignore.bak" "$M/.gitignore"
+rm -rf "$M/vault/raw/acme-notes"
 
 out="$(hg setup --root "$M" --project second-one)"
 [ -f "$M/vault/projects/second-one/PRD.md" ] && ok "--project works in an existing workspace" || bad "--project works in an existing workspace" "$out"
@@ -208,6 +238,27 @@ for needle in 'If `gh` is the only thing missing, or only its install fails, car
   grep -qF -- "$needle" "$HG_SETUP" && ok "/hg:setup covers: $needle" || bad "/hg:setup covers: $needle"
 done
 grep -qF '1. Run `gh auth status`' "$HG_SETUP" && bad "/hg:setup does not run gh unconditionally" || ok "/hg:setup does not run gh unconditionally"
+
+# --- a workspace made by an earlier release: its empty placeholders under vault/raw/ are tracked --------------
+for how in plain refresh; do
+  O="$TMP/older-$how"
+  hg setup --root "$O" --name Older --language en --project acme-notes >/dev/null
+  git -C "$O" config user.email reviewer@example.com; git -C "$O" config user.name Reviewer; git -C "$O" config core.autocrlf false
+  for k in meetings interviews sources snapshots; do mkdir -p "$O/vault/raw/acme-notes/$k"; : > "$O/vault/raw/acme-notes/$k/.gitkeep"; done
+  git -C "$O" add -A; git -C "$O" add -f vault/raw/acme-notes; git -C "$O" commit -q -m older
+  printf 'real notes\n' > "$O/vault/raw/acme-notes/meetings/2026-11-12-kickoff.md"
+  if [ "$how" = plain ]; then out="$(hg setup --root "$O")"; else out="$(hg setup --root "$O" --refresh-ci)"; fi; rc=$?
+  t '[ $rc -eq 0 ] && [ "$(git -C "$O" ls-files vault/raw)" = vault/raw/README.md ] && [ "$(printf "%s\n" "$out" | grep -c "^untracked	vault/raw/acme-notes/.*/\.gitkeep$")" = 4 ]' \
+    "setup ($how) takes the four empty placeholders an earlier setup made out of git, and names them" "rc=$rc $out $(git -C "$O" ls-files vault/raw)"
+  t '[ -z "$(git -C "$O" diff --cached --name-only -- vault/raw/acme-notes/meetings/2026-11-12-kickoff.md)" ] && ! git -C "$O" ls-files --error-unmatch vault/raw/acme-notes/meetings/2026-11-12-kickoff.md >/dev/null 2>&1' \
+    "setup ($how) never stages a real raw file" "$(git -C "$O" status --porcelain)"
+  out="$(cd "$O" && CLAUDE_PROJECT_DIR="$O" hg publish check 2>&1)"; rc=$?
+  t '[ $rc -eq 0 ]' "after setup ($how) the publish check passes" "rc=$rc $out"
+  out="$(hg doctor --root "$O" | tr -d '\r' | grep $'\traw\t')"
+  t '! has "$out" ERROR && has "$out" "1 source file(s) on this computer"' "doctor ($how) then counts only the real raw file" "$out"
+done
+grep -qF 'git rm -r --cached vault/raw' "$REPO_ROOT/README.md" && grep -qF 'git rm -r --cached vault/raw' "$PLUGIN/skills/setup/SKILL.md" \
+  && ok "README and the setup skill tell the maintainer how to take tracked raw files out of git" || bad "README and the setup skill tell the maintainer how to take tracked raw files out of git"
 
 # --- the second person's guide: on a Mac, sign-in comes before the clone ------------------------------
 GUIDE="$REPO_ROOT/QUICKSTART-druga-osoba.md"

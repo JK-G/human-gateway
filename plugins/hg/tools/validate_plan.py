@@ -18,6 +18,10 @@ Checks:
   - ingest map (vault/schema.md "## Ingest map"): for op ingest / file_back, every new or edited
     page type must be allowed for the source's row (rule rejected_ingest_scope)
   - dedup scope guard: no op may touch PRD.md, raw/ or planning/ paths
+  - private files (page.private_path, page.source_entry, page.source_ref): no page text names a raw file or a
+    file in intake/ or the inbox; sources, derived_from, source_raw, superseded_by and add_source_ref values are a
+    source reference, a wiki page or a journal day; for an ingest of a raw file every new page cites its
+    reference, and a new source-summary has it as source_raw
 """
 import fnmatch
 import hashlib
@@ -128,6 +132,83 @@ def source_checks(plan, root, vault, rep):
         actual = hashlib.sha1(path.read_bytes()).hexdigest()
         if actual != expected:
             rep.err("source_hash.mismatch", ".source_hash", "source changed since planning (expected %s, actual %s)" % (expected, actual))
+
+
+SOURCE_LIST_KEYS = ("sources", "derived_from")
+SOURCE_ONE_KEYS = ("source_raw", "superseded_by")
+PRIVATE_PATH_MESSAGE = ("names a file that stays on one machine (a raw file, or a file in intake/ or the inbox). Cite a "
+                        "raw file by the reference hg-tool raw-ref prints, and never name it.")
+SOURCE_ENTRY_MESSAGE = ("'%s' may hold a source reference (src:...), a wiki page (wiki/...md) or a journal day "
+                        "(journal/YYYY-MM-DD.md)")
+
+
+def strings_in(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from strings_in(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from strings_in(item)
+
+
+def source_entries(fm):
+    """(key, value) for every source-shaped value of a frontmatter mapping."""
+    if not isinstance(fm, dict):
+        return
+    for key in SOURCE_LIST_KEYS:
+        value = fm.get(key)
+        for item in (value if isinstance(value, list) else [] if value is None else [value]):
+            yield key, item
+    for key in SOURCE_ONE_KEYS:
+        if fm.get(key) not in (None, ""):
+            yield key, fm[key]
+
+
+def private_checks(plan, root, conf, rep):
+    """Raw files stay on one machine: tracked text never names one and cites it by its reference (3.6).
+    source_checks is not affected: a plan lives in .gateway/ on the machine that holds the source."""
+    import raw_ref  # imported here: the other checks do not need it
+    edits = [(i, e) for i, e in enumerate(plan.get("edits") or []) if isinstance(e, dict)]
+    pages = [(i, n) for i, n in enumerate(plan.get("new_pages") or []) if isinstance(n, dict)]
+    for i, n in pages:
+        for part in ("frontmatter", "body"):
+            if any(kr.names_private_path(s, conf) for s in strings_in(n.get(part))):
+                rep.err("page.private_path", ".new_pages[%d].%s" % (i, part), PRIVATE_PATH_MESSAGE)
+    for i, e in edits:
+        for part in ("content", "values", "frontmatter", "target_frontmatter"):
+            if any(kr.names_private_path(s, conf) for s in strings_in(e.get(part))):
+                rep.err("page.private_path", ".edits[%d].%s" % (i, part), PRIVATE_PATH_MESSAGE)
+
+    def entry_check(where, pairs):
+        for key in sorted({k for k, v in pairs if not kr.valid_source_entry(v)}):
+            rep.err("page.source_entry", where, SOURCE_ENTRY_MESSAGE % key)
+    for i, n in pages:
+        entry_check(".new_pages[%d].frontmatter" % i, list(source_entries(n.get("frontmatter"))))
+    for i, e in edits:
+        entry_check(".edits[%d].frontmatter" % i, list(source_entries(e.get("frontmatter"))))
+        entry_check(".edits[%d].target_frontmatter" % i, list(source_entries(e.get("target_frontmatter"))))
+        if e.get("op") == "add_source_ref" and isinstance(e.get("values"), list):
+            entry_check(".edits[%d].values" % i, [("sources", v) for v in e["values"]])
+
+    source = plan.get("source")
+    vault = conf["VAULT_DIR"].strip("/")
+    if (plan.get("op") or "ingest") != "ingest" or not isinstance(source, str) or not source.startswith(vault + "/raw/"):
+        return
+    try:
+        ref = raw_ref.ref_of(root, conf, source)
+    except Exception:  # a missing or misnamed source is reported by source_checks
+        return
+    for i, n in pages:
+        fm = n.get("frontmatter") if isinstance(n.get("frontmatter"), dict) else {}
+        listed = fm.get("sources") if isinstance(fm.get("sources"), list) else []
+        if ref not in listed:
+            rep.err("page.source_ref", ".new_pages[%d].frontmatter.sources" % i,
+                    "a page made from this source cites it by its reference: add %s to sources" % ref)
+        if (n.get("type") == "source-summary" or fm.get("type") == "source-summary") and fm.get("source_raw") != ref:
+            rep.err("page.source_ref", ".new_pages[%d].frontmatter.source_raw" % i,
+                    "the summary of this source has source_raw: %s" % ref)
 
 
 def schema_check(plan, schema_path, vault, rep):
@@ -297,6 +378,7 @@ def main(argv):
     else:
         shape_checks(plan, vault, rep)
         source_checks(plan, root, vault, rep)
+        private_checks(plan, root, conf, rep)
         schema_check(plan, schema_path, vault, rep)
         registry_checks(plan, root, conf, check_pages, rep)
 

@@ -1,6 +1,8 @@
 # Szybki start dla kolejnej osoby w dziale
 
-Po tych krokach masz u siebie wiedzę działu i pytasz o nią Claude'a zwykłym językiem. Instalujesz jedną aplikację, wklejasz jedną wiadomość i wpisujesz kilka krótkich poleceń, o które Claude sam poprosi. Osobny terminal nie jest potrzebny.
+Po tych krokach masz drugi mózg: wiedzę działu u siebie i własne pliki, z których Claude buduje wiki. Twoje pliki zostają na Twoim komputerze, a strony powstają najpierw tylko u Ciebie. Do działu wysyłasz je przez publikację: Claude sprawdzi zmiany, pokaże podgląd tego, co wyjdzie i co pominął, i zapyta o Twoją zgodę. Zatwierdzenia, czyli bramki, otwierają się ponownie, gdy zmieni się to, na czym się opierają.
+
+Instalujesz jedną aplikację, wklejasz jedną wiadomość i wpisujesz kilka krótkich poleceń, o które Claude sam poprosi. Osobny terminal nie jest potrzebny.
 
 Potrzebujesz płatnego konta Claude (Pro, Max, Ultra, Team lub Enterprise) oraz konta na github.com. Jeśli nie masz konta na GitHubie, załóż je i podaj jego nazwę osobie, od której masz tę instrukcję: musi mieć ono dostęp do repozytorium działu.
 
@@ -49,7 +51,7 @@ Na końcu poprosi o wpisanie dwóch poleceń, jedno po drugim. Claude nie może 
 /hg:setup
 ```
 
-Jeśli na koniec Claude wspomni o zapisaniu plików albo wysłaniu repozytorium, pomiń to. Ten krok należał do pierwszej osoby w dziale.
+Jeśli na koniec Claude zaproponuje opublikowanie plików przestrzeni albo założenie repozytorium na GitHubie, pomiń to. Ten krok należał do pierwszej osoby w dziale.
 
 ## Na co dzień
 
@@ -60,6 +62,7 @@ Piszesz po polsku, czego chcesz.
 | `co mam dziś` | Pokaże, co czeka na Ciebie i co zostało z ostatniej notatki, a potem zapyta, na czym chcesz się skupić. |
 | `co wiemy o cenach` | Odpowie na podstawie wiki działu. Gdy odpowiedź wnosi coś nowego, zapyta, czy zapisać ją w wiki. |
 | `kończę na dziś` | Podsumuje dzień i przygotuje notatkę na kolejny dzień pracy. |
+| `opublikuj` | Sprawdzi Twoje zmiany, pokaże podgląd i zapyta, czy mogą wyjść do działu. |
 | `coś nie działa` | Sprawdzi przestrzeń działu i powie, co naprawić. |
 
 Ręcznie wpisujesz tylko dwa polecenia, a Claude powie, kiedy:
@@ -71,17 +74,23 @@ Ręcznie wpisujesz tylko dwa polecenia, a Claude powie, kiedy:
 
 Wrzuć go do folderu `intake/` w folderze działu i wpisz samo `/hg:init`, bez dopisków. Link zamiast pliku dopisz do `intake/links.md`.
 
-Claude przeczyta tylko to, co nowe. O to, kto może czytać repozytorium, zapyta tylko wtedy, gdy nowy materiał może to zmienić. Zanim zapisze strony wiki, pokaże Ci listę do akceptacji.
+Claude przeczyta tylko to, co nowe. O to, kto może czytać repozytorium, zapyta tylko wtedy, gdy nowy materiał może to zmienić. Strony wiki zapisze najpierw tylko u Ciebie. Potem pokaże podgląd tego, co wyjdzie i co pominął, i zapyta, czy to może wyjść do działu. Claude Code zapyta jeszcze raz, czy może uruchomić polecenie, które zapisuje zmiany.
+
+Plik przechodzi z `intake/` do `vault/raw/` i zostaje na Twoim komputerze, poza gitem. Plik z sekretem zostaje w `intake/` i nikt go nie otwiera. Twoich plików nikt nie kopiuje: nie mają kopii zapasowej ani historii zmian, więc jeśli stracisz dysk, stracisz je. Strony zrobione z nich zostaną w repozytorium.
+
+### Skąd jest ta strona
+
+W folderze działu nie znajdziesz plików źródłowych innych osób, tylko strony. Gdy zapytasz Claude'a, skąd pochodzi strona, powie, że źródło jest prywatne, jakiego jest rodzaju i z jakiego dnia, i że historia zmian strony pokazuje, kto ją opublikował. Tak samo inni widzą Twoje źródła.
 
 ### Coś trzeba zatwierdzić
 
 Bramka to zapis, że wskazane pliki zostały zatwierdzone, i kto za nie odpowiada. Gdy któryś plik się zmieni, bramka otwiera się ponownie i Claude pokaże to w podsumowaniu dnia. Otwiera się też wtedy, gdy zmieniło się źródło w innym systemie, które bramka wskazuje, na przykład zadanie albo tablica. Przed zatwierdzeniem Claude sprawdza te źródła albo pyta Cię, czy coś się w nich zmieniło.
 
-Jeśli dział ma ustawione wiadomości na Slacku, o bramce czekającej na zatwierdzenie dowiesz się też z kanału działu. Wtedy otwórz Claude'a w folderze działu i wpisz `/hg:gate`. Ustaw w Slacku powiadomienia tego kanału na każdą nową wiadomość. Poza tym dla Slacka niczego nie instalujesz ani nie ustawiasz.
+Jeśli dział ma ustawione wiadomości na kanale (w Slacku, w Teams albo w innym komunikatorze), o bramce czekającej na zatwierdzenie dowiesz się też stamtąd. Wtedy otwórz Claude'a w folderze działu i wpisz `/hg:gate`. Ustaw powiadomienia tego kanału na każdą nową wiadomość. Poza tym niczego dla niego nie instalujesz ani nie ustawiasz.
 
 Po wpisaniu `/hg:gate` możesz zatwierdzić sam. Jeśli to Ty odpowiadasz za bramkę, możesz też poprosić Claude'a, żeby zatwierdził w Twoim imieniu. Za treść w obu przypadkach odpowiadasz Ty, a zatwierdzenie przez Claude'a zobaczysz w swoim podsumowaniu dnia.
 
-Reszta działu zobaczy Twoje zmiany dopiero wtedy, gdy poprosisz Claude'a o ich zapisanie i wysłanie. Dotyczy to także tego, co Claude zapisał o sprawdzonych źródłach.
+Reszta działu zobaczy Twoje zmiany po publikacji. Gdy napiszesz „opublikuj”, Claude pokaże podgląd i dwa razy zapyta o zgodę. To zasada, której Claude się trzyma; nic jej nie wymusza. Dotyczy to także tego, co Claude zapisał o sprawdzonych źródłach.
 
 ## Gdy coś pójdzie nie tak
 

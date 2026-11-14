@@ -3,6 +3,9 @@
     "allow": [
       "Bash(hg-tool *)"
     ],
+    "ask": [
+      "Bash(hg-tool publish commit *)"
+    ],
     "deny": [
       "Bash(git push --force*)",
       "Bash(git push -f*)",
@@ -10,6 +13,16 @@
       "Bash(git push * -f *)",
       "Bash(git commit * --no-verify*)",
       "Bash(git commit --no-verify*)",
+      "Bash(git update-index *)",
+      "Bash(git add -f*)",
+      "Bash(git add --f*)",
+      "Bash(git add * -f*)",
+      "Bash(git add * --f*)",
+      "Bash(git clean *)",
+      "Bash(git stash -a*)",
+      "Bash(git stash --all*)",
+      "Bash(git stash * -a*)",
+      "Bash(git stash * --all*)",
       "Bash(rm -rf /)",
       "Bash(rm -rf / *)",
       "Bash(rm -rf /*)",

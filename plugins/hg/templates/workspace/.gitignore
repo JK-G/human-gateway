@@ -1,8 +1,12 @@
-# Personal notes and files waiting for a scan stay on this machine.
+# Personal notes and a person's own source files stay on this machine.
 vault/daily/*
 !vault/daily/README.md
 intake/*
 !intake/README.md
+vault/raw/*
+!vault/raw/README.md
+vault/inbox/*
+!vault/inbox/_template.md
 
 # Generated per person
 DASHBOARD.md

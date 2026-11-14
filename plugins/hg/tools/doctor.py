@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import kit_registry as kr  # noqa: E402
 
-REQUIRED_IGNORES = ("vault/daily/", "intake/", "DASHBOARD.md", ".gateway/", ".claude/state/", ".claude/settings.local.json")
+REQUIRED_IGNORES = ("vault/daily/", "intake/", "vault/raw/", "vault/inbox/", "DASHBOARD.md", ".gateway/", ".claude/state/", ".claude/settings.local.json")
 TEMPLATE_SETTINGS = Path(__file__).resolve().parent.parent / "templates" / "workspace" / ".claude" / "settings.json"
 JOURNAL_STALE_DAYS = 14
 
@@ -104,6 +104,33 @@ def check_gitignore(f, root):
         f.add("OK", "gitignore", "personal and generated files are ignored")
 
 
+def check_raw(f, root, conf):
+    """A person's own files: none tracked, vault/raw/ ignored, and how many are here (5.12)."""
+    import raw_ref  # imported here: only this check needs it
+    vault = conf["VAULT_DIR"].strip("/")
+    inside = gate.git(root, "rev-parse", "--is-inside-work-tree")
+    if inside is None or inside.returncode != 0:
+        f.add("WARN", "raw", "this folder is not a git repository, so whether a raw file is kept out of git was not checked. Run /hg:setup.")
+    else:
+        listed = gate.git(root, "ls-files", "-z")
+        tracked = [p for p in (listed.stdout.split("\0") if listed and listed.returncode == 0 else []) if p and kr.is_private(p, conf)]
+        if tracked:
+            f.add("ERROR", "raw", "%d file(s) in a folder that must stay out of git are tracked by git. Tell the person "
+                  "who maintains this repository before anything else is published." % len(tracked))
+        if not gate.is_ignored(root, "%s/raw/x/meetings/x.md" % vault):
+            f.add("ERROR", "raw", "%s/raw/ is not ignored by git here, so a raw file could be committed. Run /hg:setup." % vault)
+    rows = raw_ref.raw_files(root, conf)
+    cited = raw_ref.cited(root, conf)
+    here = {ref for ref, _ in rows if ref}
+    uncited = sum(1 for ref, _ in rows if not ref or ref not in cited)
+    f.add("OK", "raw", "%d source file(s) on this computer, outside git, with no backup. %d of them are not cited by any "
+          "page yet." % (len(rows), uncited))
+    away = len(cited - here)
+    if away:
+        f.add("OK", "raw", "%d reference(s) in tracked pages point to sources that are not on this computer. They stay "
+              "with whoever brought them in." % away)
+
+
 def check_marketplace(f, root):
     try:
         data = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8-sig"))
@@ -117,16 +144,22 @@ def check_marketplace(f, root):
 
 
 def check_permissions(f, root):
-    required = json.loads(TEMPLATE_SETTINGS.read_text(encoding="utf-8"))["permissions"]["deny"]
+    """The template's deny rules, and its ask rule: Claude Code asks the person before hg-tool publish commit runs."""
+    template = json.loads(TEMPLATE_SETTINGS.read_text(encoding="utf-8"))["permissions"]
     try:
-        deny = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8-sig"))["permissions"]["deny"]
+        have = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8-sig"))["permissions"]
     except (OSError, ValueError, KeyError, TypeError):
-        deny = []
-    missing = [rule for rule in required if not isinstance(deny, list) or rule not in deny]
-    if missing:
-        f.add("WARN", "permissions", "deny rules missing from .claude/settings.json: %s. Run hg-tool setup to add them." % ", ".join(missing))
-    else:
-        f.add("OK", "permissions", "deny rules are in .claude/settings.json")
+        have = {}
+    clean = True
+    for kind in ("deny", "ask"):
+        rules = have.get(kind) if isinstance(have, dict) else None
+        missing = [rule for rule in template.get(kind, []) if not isinstance(rules, list) or rule not in rules]
+        if missing:
+            clean = False
+            f.add("WARN", "permissions", "%s rules missing from .claude/settings.json: %s. Run hg-tool setup to add them."
+                  % (kind, ", ".join(missing)))
+    if clean:
+        f.add("OK", "permissions", "deny and ask rules are in .claude/settings.json")
 
 
 def file_hash(path):
@@ -144,10 +177,22 @@ def check_scanner(f, root):
 
 
 def check_notify(f, root):
-    """The Slack notifier: its workflow and copies, then the secret by name and the last run, through gh (notify.checks)."""
+    """The messenger's notifier: its workflow and copies, then, when a messenger is declared, the secret by name and
+    the last run, through gh (notify.checks)."""
     import notify  # imported here: only this check needs it
     for level, check, message in notify.checks(root):
         f.add(level, check, message)
+
+
+def check_nodes(f, root):
+    """One English line per node other than the messenger (check_notify covers it), then what nodes.* gets wrong.
+    Offline: check_notify already asked gh about the secret, and the messenger's line is not printed here."""
+    import nodes  # imported here: only this check needs it
+    for node in nodes.collect(root, online=False, polish=False):
+        if node["id"] != "messenger":
+            f.add("OK", "node", node["line"])
+    for message in nodes.warnings(root):
+        f.add("WARN", "node", message)
 
 
 def check_gate_names(f, root):
@@ -181,11 +226,13 @@ def main(argv):
     conf = check_config(f, root)
     if conf:
         check_layout(f, root, conf)
+        check_raw(f, root, conf)
         check_gitignore(f, root)
         check_marketplace(f, root)
         check_permissions(f, root)
         check_scanner(f, root)
         check_notify(f, root)
+        check_nodes(f, root)
         check_gate_names(f, root)
         check_journal(f, root)
     return 1 if f.errors else 0

@@ -2,14 +2,15 @@ name: hg notify
 
 # Says in the department's channel which gates wait. Separate from "hg scan" on purpose:
 # a message that cannot be sent fails only this run.
-# The webhook address is the Actions secret HG_SLACK_WEBHOOK_URL. This file holds only its name.
+# The channel is "nodes.messenger.type" in .claude/hg.json: slack, teams or webhook.
+# Its address is the Actions secret HG_NOTIFY_WEBHOOK_URL. This file holds only the name.
 # There is no pull_request trigger here, and there must never be one.
 
 on:
   push:
     branches: ["**"]
   schedule:
-    - cron: "30 6 * * *"   # UTC, every day. notify.py skips days outside "workdays" in .claude/hg.json.
+    - cron: "30 7 * * *"   # UTC, every day. notify.py skips days outside "workdays" in .claude/hg.json.
   workflow_dispatch:
     inputs:
       mode:
@@ -44,7 +45,7 @@ jobs:
           python-version: "3.12"
       - name: Say which gates wait
         env:
-          HG_SLACK_WEBHOOK_URL: ${{ secrets.HG_SLACK_WEBHOOK_URL }}
+          HG_NOTIFY_WEBHOOK_URL: ${{ secrets.HG_NOTIFY_WEBHOOK_URL }}
           HG_EVENT: ${{ github.event_name }}
           HG_MODE: ${{ inputs.mode }}
           HG_BEFORE: ${{ github.event.before }}

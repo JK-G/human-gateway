@@ -91,11 +91,66 @@ n="$(printf '%s\n' "$out" | grep -c 'uncited_query_output')"
 rm -f "$TMP/vault/wiki/research/filed-answer.md" "$TMP/vault/log.jsonl"
 
 # --- validate-plan -----------------------------------------------------------------
-SRC="vault/raw/acme-notes/meetings/example--2026-01-15-kickoff.md"
+SRC="vault/raw/acme-notes/meetings/2026-01-15-example-kickoff.md"
 H="$(sha1_of "$TMP/$SRC")"
-jedit "$FIX/valid-plan.json" "$TMP/plan.json" "d['source_hash']='sha1:$H'"
+REF="$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" hg raw-ref "$SRC")"
+case "$REF" in src:meetings:2026-01-15:????????) ok "the fixture source has a reference";; *) bad "the fixture source has a reference" "$REF";; esac
+jedit "$FIX/valid-plan.json" "$TMP/plan.json" "d['source_hash']='sha1:$H'; d['edits'][0]['values']=['$REF']; d['new_pages'][0]['frontmatter']['sources']=['$REF']"
 out="$(hg validate-plan --root "$TMP" --check-pages "$TMP/plan.json" 2>&1)"; rc=$?
 [ $rc -eq 0 ] && [ ! -f "$TMP/plan.errors.json" ] && ok "valid plan passes" || bad "valid plan passes (rc=$rc)" "$out"
+grep -rq "$REF" "$TMP/vault/wiki" && ok "the fixture pages cite the fixture's reference" || bad "the fixture pages cite the fixture's reference"
+
+# --- raw files stay on one machine: plans and pages cite them by reference ------------------------
+plan_rule() {  # plan_rule <label> <rule> <python statements on d>
+  jedit "$TMP/plan.json" "$TMP/rule.json" "$3"
+  local out rc; out="$(hg validate-plan --root "$TMP" "$TMP/rule.json" 2>&1)"; rc=$?
+  { [ $rc -eq 1 ] && printf '%s' "$out" | grep -q "\[$2\]"; } && ok "$1" || bad "$1 (rc=$rc)" "$out"
+}
+RAWP="raw/acme-notes/meetings/2026-01-15-example-kickoff.md"
+plan_rule "a plan whose page names a raw path is rejected (page.private_path): in body" page.private_path \
+  "d['new_pages'][0]['body']+='\nOriginal: \`$RAWP\`.\n'"
+plan_rule "a plan whose page names a raw path is rejected (page.private_path): in content" page.private_path \
+  "d['edits'].append(dict(op='append',page='vault/wiki/concepts/example--acme-notes-offline-sync.md',page_hash_expected='sha1:'+'0'*40,section='Related',content='- from vault/$RAWP',rationale='r',confidence=0.5))"
+plan_rule "a plan whose page names a raw path is rejected (page.private_path): in sources" page.private_path \
+  "d['new_pages'][0]['frontmatter']['sources']=['$RAWP']"
+plan_rule "a plan whose page names an intake file is rejected" page.private_path \
+  "d['new_pages'][0]['body']+='\nSee intake/cennik.xlsx for the numbers.\n'"
+plan_rule "a raw path written with backslashes is rejected too" page.private_path \
+  "d['new_pages'][0]['body']+='\nOriginal: '+chr(92).join(['vault','raw','acme-notes','meetings','2026-01-15-example-kickoff.md'])+'\n'"
+plan_rule "a plan whose new page does not cite the source's reference is rejected (page.source_ref)" page.source_ref \
+  "d['new_pages'][0]['frontmatter']['sources']=['wiki/concepts/example--acme-notes-offline-sync.md']"
+jedit "$TMP/plan.json" "$TMP/rule.json" "d['new_pages'][0]['frontmatter']['sources']=[]"
+out="$(hg validate-plan --root "$TMP" "$TMP/rule.json" 2>&1)"
+printf '%s' "$out" | grep -qF "add $REF to sources" && ok "the message gives the reference" || bad "the message gives the reference" "$out"
+jedit "$TMP/plan.json" "$TMP/rule.json" "d['edits'][0]['values']=['$REF','wiki/decisions/example--2026-01-20-acme-notes-local-first.md','journal/2026-01-15.md']"
+out="$(hg validate-plan --root "$TMP" "$TMP/rule.json" 2>&1)"; rc=$?
+plan_rule "add_source_ref rejects free text (page.source_entry)" page.source_entry "d['edits'][0]['values']=['the kickoff meeting']"
+[ $rc -eq 0 ] && ok "add_source_ref takes a reference and a wiki path, and rejects free text (page.source_entry)" || bad "add_source_ref takes a reference and a wiki path, and rejects free text (page.source_entry) (rc=$rc)" "$out"
+
+page_case() {  # page_case <name> <sources line> [extra frontmatter line]: writes a concept page, prints validate-frontmatter
+  printf -- '---\ntype: concept\nproject: acme-notes\ntemporal: living\nstatus: active\nlast_verified: 2026-01-30\nsources: %s\naliases: []\nsummary: "A page."\n%b---\n## Definition\nx\n## Related\ny\n' "$2" "${3:-}" > "$TMP/vault/wiki/concepts/$1.md"
+  hg validate-frontmatter --root "$TMP" "$TMP/vault/wiki/concepts/$1.md" 2>&1
+}
+out="$(page_case acme-notes--raw-cited "[\"$RAWP\"]")"; rc=$?
+{ [ $rc -eq 1 ] && printf '%s' "$out" | grep -q "bad_source_entry: 'sources'"; } && ok "a page with a raw path in sources fails validate-frontmatter (bad_source_entry)" || bad "a page with a raw path in sources fails validate-frontmatter (bad_source_entry) (rc=$rc)" "$out"
+printf '%s' "$out" | grep -q 'example-kickoff' && bad "the finding does not print the value" "$out" || ok "the finding does not print the value"
+out="$(page_case acme-notes--well-cited "[\"$REF\", \"wiki/decisions/example--2026-01-20-acme-notes-local-first.md\", \"journal/2026-01-15.md\"]")"; rc=$?
+printf '%s' "$out" | grep -q 'bad_source_entry' && bad "a page with a reference, a wiki path and a journal day passes" "$out" || ok "a page with a reference, a wiki path and a journal day passes"
+printf '%s' "$out" | grep -q "WARN.*dead_source: 'journal/2026-01-15.md' is not in this repository" && ok "a wiki path that does not exist is a warning (dead_source)" || bad "a wiki path that does not exist is a warning (dead_source)" "$out"
+{ [ $rc -eq 0 ] && ! printf '%s' "$out" | grep -q "dead_source: 'wiki/decisions"; } && ok "an existing wiki page is no dead source, and a warning does not fail" || bad "an existing wiki page is no dead source, and a warning does not fail (rc=$rc)" "$out"
+out="$(page_case acme-notes--dead-wiki "[\"wiki/concepts/acme-notes--gone.md\"]")"; rc=$?
+{ [ $rc -eq 0 ] && printf '%s' "$out" | grep -q "^WARN.*dead_source: 'wiki/concepts/acme-notes--gone.md'"; } && ok "a missing wiki page is a dead source too" || bad "a missing wiki page is a dead source too (rc=$rc)" "$out"
+tok="tok""en=abcd1234efgh5678ijkl"
+out="$(page_case acme-notes--bad-url "[\"$REF\"]" "source_url: \"https://app.clickup.example/t/86abc?$tok\"\n")"; rc=$?
+{ [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'bad_source_url'; } && ok "source_url must be one clean link (bad_source_url): a link with token= fails" || bad "source_url must be one clean link (bad_source_url): a link with token= fails (rc=$rc)" "$out"
+printf '%s' "$out" | grep -q 'abcd1234' && bad "the link's token is not printed" "$out" || ok "the link's token is not printed"
+out="$(page_case acme-notes--two-urls "[\"$REF\"]" "source_url: \"https://a.example/x https://b.example/y\"\n")"; rc=$?
+[ $rc -eq 1 ] && ok "source_url with two links fails" || bad "source_url with two links fails (rc=$rc)" "$out"
+mkdir -p "$TMP/vault/wiki/sources"
+printf -- '---\ntype: source-summary\nproject: acme-notes\ntemporal: snapshot\nstatus: active\nlast_verified: 2026-01-30\nsource_raw: "%s"\nsource_url: "https://app.clickup.example/t/86abc"\nextraction: extracted\nsources: ["%s"]\naliases: []\nsummary: "A task summary."\n---\n# Summary\n' "$REF" "$REF" > "$TMP/vault/wiki/sources/acme-notes--2026-01-30-task.md"
+out="$(hg validate-frontmatter --root "$TMP" "$TMP/vault/wiki/sources/acme-notes--2026-01-30-task.md" 2>&1)"; rc=$?
+{ [ $rc -eq 0 ] && ! printf '%s' "$out" | grep -qE 'unknown_key|bad_source'; } && ok "a link summary is a source-summary page with source_url" || bad "a link summary is a source-summary page with source_url (rc=$rc)" "$out"
+rm -f "$TMP"/vault/wiki/concepts/acme-notes--*.md "$TMP/vault/wiki/sources/acme-notes--2026-01-30-task.md"
 
 jedit "$TMP/plan.json" "$TMP/tampered.json" "d['source_hash']='sha1:'+'0'*40"
 out="$(hg validate-plan --root "$TMP" "$TMP/tampered.json" 2>&1)"; rc=$?
@@ -162,6 +217,8 @@ sum2="$(cat "$TMP"/vault/index*.md | cksum)"
   && ok "index generator is idempotent" || bad "index generator is idempotent" "$out"
 hg index --root "$TMP" --check >/dev/null 2>&1 \
   && ok "index --check passes when fresh" || bad "index --check passes when fresh"
+router="$(grep '^- `raw/`' "$TMP/vault/index.md")"
+case "$router" in *"never in git"*) ok "the index router no longer calls raw a shared layer";; *) bad "the index router no longer calls raw a shared layer" "$router";; esac
 for t in $(hg registry --root "$TMP" types); do
   [ -f "$TMP/vault/index-$t.md" ] || bad "sub-index for $t written"
 done

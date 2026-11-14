@@ -212,7 +212,18 @@ def collect(root):
         "agent_approvals": [dict(a, line=approval_line(a, gate.is_polish(conf)))
                             for a in gate.agent_approvals(root, gates, since)],
         "open_questions": open_questions(root, vault),
+        "unpublished": unpublished(root, conf),
     }
+
+
+def unpublished(root, conf):
+    """Changes the department does not see yet: what git lists, the log, the journal and the index left out, plus
+    commits no remote has. No path. A folder without git counts 0."""
+    import publish  # imported here: only this key needs it
+    try:
+        return publish.unpublished(root, conf)
+    except Exception:
+        return {"count": 0, "line": ""}
 
 
 def main():

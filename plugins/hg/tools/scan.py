@@ -3,12 +3,19 @@
 
 Usage: hg-tool scan [--json] [--git] [--config FILE] [PATH ...]
   PATH      a file, or a folder scanned recursively
-  --git     the files git tracks, limited to PATH when PATH is given
+  --git     the files git tracks, limited to PATH when PATH is given. A tracked file in a private folder is
+            reported as kind private without being read
   --json    the findings as one JSON object
   --config  default: .claude/hg.json of this repository, keys scan.allow and scan.patterns
 
 Output: one finding per line, path:line<TAB>kind<TAB>masked value, so the scan never repeats what it found.
-Kinds: secret, pii, filetype (the value says "link only" or "secret file"). Exit: 0 clean, 1 findings, 2 usage or config error.
+Kinds: secret, pii, filetype (the value says "link only" or "secret file"), and with --git private.
+Exit: 0 clean, 1 findings, 2 usage or config error.
+
+The private folders hold a person's own files and stay on one machine, outside git: <vault>/raw/, <vault>/inbox/,
+<vault>/daily/, intake/ and .gateway/, with <vault> from paths.vault of the config (default vault). The four template
+files kept in them (<vault>/raw/README.md, <vault>/inbox/_template.md, <vault>/daily/README.md, intake/README.md)
+are not private. A scan of a PATH reads a private file like any other: that is how raw files are checked.
 
 scan.allow is {"emails": [...], "domains": [...]}. scan.patterns maps a name to a regex, or to {"regex": ..., "kind": "secret"|"pii"}.
 The contents of binary files are not read: they are listed as not read (on stderr, and under "not_read" with --json)
@@ -108,6 +115,8 @@ PHONE_WORD = re.compile(r"(?<![^\W\d_])(?:%s)(?![^\W\d_])" % PHONE_WORDS, re.I)
 PERSONAL_WORD = re.compile(r"(?<![^\W\d_])(?:%s|%s)(?![^\W\d_])" % (PHONE_WORDS, CARD_WORDS), re.I)
 COMPANY_LABEL = re.compile(r"(?<![^\W_])(NIP|REGON|KRS|EAN)(?:[- ]?(?:8|13))?(?![^\W\d_])", re.I)
 COMPANY_GAP = 30
+PRIVATE_FOLDERS = ("{v}/raw/", "{v}/inbox/", "{v}/daily/", "intake/", ".gateway/")
+KEPT_FILES = ("{v}/raw/README.md", "{v}/inbox/_template.md", "{v}/daily/README.md", "intake/README.md")
 GATE_IDENTITY = re.compile(r"""^\s*accountable:\s*["']?%s["']?\s*$|^\s*"(?:by|accountable)":\s*"%s",?\s*$""" % (ADDRESS, ADDRESS))
 
 
@@ -147,32 +156,81 @@ def find_config():
     return None
 
 
+class ConfigError(Exception):
+    """A scan section that cannot be read. load_config turns it into exit 2; hg-tool publish names the copy."""
+
+
 def compile_patterns(spec):
     if not isinstance(spec, dict):
-        die("scan.patterns must map a name to a regex")
+        raise ConfigError("scan.patterns must map a name to a regex")
     patterns = []
     for name, item in spec.items():
         item = {"regex": item} if isinstance(item, str) else item
         if not isinstance(item, dict) or not isinstance(item.get("regex"), str):
-            die("scan.patterns: '%s' needs a regex" % name)
+            raise ConfigError("scan.patterns: '%s' needs a regex" % name)
         kind = item.get("kind", "pii")
         if kind not in PATTERN_KINDS:
-            die("scan.patterns: '%s' has kind '%s', expected secret or pii" % (name, kind))
+            raise ConfigError("scan.patterns: '%s' has kind '%s', expected secret or pii" % (name, kind))
         try:
             patterns.append((name, kind, re.compile(item["regex"])))
         except re.error as exc:
-            die("scan.patterns: '%s' is not a valid regex: %s" % (name, exc))
+            raise ConfigError("scan.patterns: '%s' is not a valid regex: %s" % (name, exc))
     return patterns
 
 
 def string_list(value, label):
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        die("%s must be a list of strings" % label)
+        raise ConfigError("%s must be a list of strings" % label)
     return value
 
 
+def _vault_dir(vault):
+    v = (vault or "").replace("\\", "/").strip("/")
+    return v or "vault"
+
+
+def private_prefixes(vault):
+    """The same list as kit_registry.private_prefixes: this file imports nothing of the kit."""
+    return [p.format(v=_vault_dir(vault)) for p in PRIVATE_FOLDERS]
+
+
+def kept_files(vault):
+    return [p.format(v=_vault_dir(vault)) for p in KEPT_FILES]
+
+
+def is_private(rel, vault):
+    """A repo-relative path in a private folder, the kept files excepted. Case is ignored on every system."""
+    low = rel.replace("\\", "/").lower()
+    if low in {k.lower() for k in kept_files(vault)}:
+        return False
+    return any(low.startswith(p.lower()) for p in private_prefixes(vault))
+
+
+def vault_of(data):
+    paths = data.get("paths") if isinstance(data, dict) else None
+    vault = paths.get("vault") if isinstance(paths, dict) else None
+    return _vault_dir(vault) if isinstance(vault, str) else "vault"
+
+
+def config_from(data, name):
+    """The scanner's configuration from a parsed hg.json object. name is how the copy is called in a message.
+    Raises ConfigError instead of exiting, so a caller that reads two copies can say which one is broken."""
+    scan = data.get("scan", {}) if isinstance(data, dict) else None
+    if not isinstance(scan, dict):
+        raise ConfigError("%s: scan must be an object" % name)
+    allow = scan.get("allow", {})
+    if not isinstance(allow, dict):
+        raise ConfigError('scan.allow must be {"emails": [...], "domains": [...]}')
+    return {
+        "emails": {e.lower() for e in string_list(allow.get("emails", []), "scan.allow.emails")},
+        "domains": {d.lower().lstrip("@") for d in string_list(allow.get("domains", []), "scan.allow.domains")},
+        "patterns": compile_patterns(scan.get("patterns", {})),
+        "vault": vault_of(data),
+    }
+
+
 def load_config(path):
-    empty = {"emails": set(), "domains": set(), "patterns": []}
+    empty = {"emails": set(), "domains": set(), "patterns": [], "vault": "vault"}
     if path is None:
         path = find_config()
         if path is None:
@@ -182,17 +240,10 @@ def load_config(path):
             data = json.load(fh)
     except (OSError, ValueError) as exc:
         die("cannot read config %s: %s" % (path, exc))
-    scan = data.get("scan", {}) if isinstance(data, dict) else None
-    if not isinstance(scan, dict):
-        die("%s: scan must be an object" % path)
-    allow = scan.get("allow", {})
-    if not isinstance(allow, dict):
-        die('scan.allow must be {"emails": [...], "domains": [...]}')
-    return {
-        "emails": {e.lower() for e in string_list(allow.get("emails", []), "scan.allow.emails")},
-        "domains": {d.lower().lstrip("@") for d in string_list(allow.get("domains", []), "scan.allow.domains")},
-        "patterns": compile_patterns(scan.get("patterns", {})),
-    }
+    try:
+        return config_from(data, path)
+    except ConfigError as exc:
+        die(str(exc))
 
 
 def git_files(paths):
@@ -204,14 +255,14 @@ def git_files(paths):
     top = git("rev-parse", "--show-toplevel")
     if top.returncode != 0:
         die("--git needs a git repository")
-    base = None if paths else top.stdout.strip()  # with no PATH, the whole repository even from a subfolder
-    listed = git("ls-files", "-z", "--", *paths, cwd=base)
+    base = top.stdout.strip()
+    # With no PATH, the whole repository even from a subfolder. Names are repo-relative (--full-name), so a private
+    # folder is recognised wherever the scan was started.
+    listed = git("ls-files", "-z", "--full-name", "--", *paths, cwd=None if paths else base)
     if listed.returncode != 0:
         die("git ls-files failed: %s" % listed.stderr.strip())
     for rel in filter(None, listed.stdout.split("\0")):
-        full = os.path.join(base, rel) if base else rel
-        if os.path.isfile(full) and not os.path.islink(full):  # a tracked file may be deleted, or be a submodule
-            yield full, rel
+        yield os.path.join(base, rel), rel
 
 
 def walk_files(paths):
@@ -257,13 +308,31 @@ def without_hidden(text):
     return text if text.isascii() else "".join(c for c in text if unicodedata.category(c) != "Cf")
 
 
+def readings(data):
+    """Every text reading of file bytes the checks must see; [] for binary. decode() reads UTF-16 or UTF-32 on two
+    bytes of mark or on a NUL pattern, which can be forced on plain text that git, GitHub and an assistant show as
+    it is. So when decode() did not read UTF-8, the UTF-8 reading is checked too (without_hidden drops the NUL bytes
+    of real UTF-16 from it)."""
+    text = decode(data)
+    if text is None:
+        return []
+    utf8 = data.decode("utf-8-sig", errors="replace")
+    return [text] if text == utf8 else [text, utf8]
+
+
 def read_text(path):
+    texts = read_texts(path)
+    return texts[0] if texts else None
+
+
+def read_texts(path):
+    """The readings of a file (see readings), each without hidden characters."""
     try:
         with open(path, "rb") as fh:
-            text = decode(fh.read())
+            texts = readings(fh.read())
     except OSError as exc:
         die("cannot read %s: %s" % (path, exc))
-    return None if text is None else without_hidden(text)
+    return [without_hidden(text) for text in texts]
 
 
 def file_finding(name):
@@ -425,12 +494,13 @@ def scan_file(path, shown, cfg, unread, gate_records=False):
     typed = file_finding(os.path.basename(path))
     if typed:
         add(1, "filetype", typed[0], typed[1], typed[1])
-    text = read_text(path)
-    if text is None and not typed:
+    texts = read_texts(path)
+    if not texts and not typed:
         unread.append(shown.replace(os.sep, "/"))
     gate_record = gate_records and is_gate_record(path)
-    for number, line in enumerate(text.split("\n") if text else [], 1):
-        scan_line(line.rstrip("\r"), cfg, lambda kind, rule, value, n=number: add(n, kind, rule, value, mask(kind, value)), gate_record)
+    for text in texts:
+        for number, line in enumerate(text.split("\n"), 1):
+            scan_line(line.rstrip("\r"), cfg, lambda kind, rule, value, n=number: add(n, kind, rule, value, mask(kind, value)), gate_record)
     return findings
 
 
@@ -447,10 +517,14 @@ def main(argv):
         parser.error("give at least one PATH, or --git")
     paths = [native_path(p) for p in args.paths]
     cfg = load_config(native_path(args.config) if args.config else None)
-    files = list(git_files(paths) if args.git else walk_files(paths))
-    findings, unread = [], []
-    for path, shown in files:
-        findings.extend(scan_file(path, shown, cfg, unread, gate_records=True))
+    findings, unread, files = [], [], []
+    for path, shown in (git_files(paths) if args.git else walk_files(paths)):
+        if args.git and is_private(shown, cfg["vault"]):  # tracked, so in git: reported without being read
+            files.append(path)
+            findings.append({"path": shown, "line": 1, "kind": "private", "rule": "private", "value": "stays on one machine"})
+        elif not args.git or (os.path.isfile(path) and not os.path.islink(path)):  # a tracked file may be deleted, or be a submodule
+            files.append(path)
+            findings.extend(scan_file(path, shown, cfg, unread, gate_records=True))
     if args.as_json:
         print(json.dumps({"scanned": len(files), "findings": findings, "not_read": unread}, ensure_ascii=False))
     else:

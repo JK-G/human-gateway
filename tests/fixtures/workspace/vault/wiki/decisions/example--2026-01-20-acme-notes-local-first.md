@@ -6,7 +6,7 @@ temporal: snapshot
 status: active
 last_verified: 2026-01-20
 decided: 2026-01-20
-sources: ["raw/acme-notes/meetings/example--2026-01-15-kickoff.md"]
+sources: ["src:meetings:2026-01-15:a5b20b6d"]
 aliases: ["local-first decision", "local-first storage"]
 summary: "Acme Notes stores notes on the device first and uses the server as relay and backup, not as the primary copy."
 tags: [performance, privacy]

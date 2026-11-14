@@ -1,7 +1,7 @@
 ---
 name: ingest
 description: Absorb a raw source (or the inbox) into the wiki through a validated change plan.
-argument-hint: "<path|--inbox> [--dry-run|--apply <hash>|--force|--list-plans]"
+argument-hint: "<path|--inbox> [--dry-run|--apply <hash>|--force|--list-plans] [--no-publish]"
 ---
 
 # /hg:ingest
@@ -20,6 +20,7 @@ and dispatches it.
 | `/hg:ingest --apply <hash> --force` | Same, but on a hash mismatch show the diff and ask before applying (interactive only). |
 | `/hg:ingest --list-plans` | List cached plans in `.gateway/plans/` with source, age and hours left. |
 | `/hg:ingest --inbox` | Batch mode over `vault/inbox/` (below). |
+| `... --no-publish` | Apply, but do not start `/hg:publish` afterwards. The pages stay on this computer. |
 
 Use repo-relative paths only (`vault/raw/...`), never absolute ones.
 
@@ -31,8 +32,12 @@ Use repo-relative paths only (`vault/raw/...`), never absolute ones.
 3. Dispatch the `hg:wiki-librarian` subagent. Start its prompt with:
    "First action: read ${CLAUDE_PLUGIN_ROOT}/rules/boundaries.md and vault/schema.md." Then pass the operation
    (`ingest`), the path or plan hash, and the flags verbatim.
-4. Show the librarian's result to the user: the summary table, the plan hash, and the log line it
-   appended (or the reason it stopped).
+4. Show the librarian's result to the user: the summary table, the plan hash, the log line it
+   appended (or the reason it stopped), and the path of the left-out report it stored.
+5. When pages were written (not for `--dry-run` or `--list-plans`), start `hg:publish` with the Skill tool, unless
+   the arguments hold `--no-publish`. The pages are on this computer only until then. Before any commit in a
+   department repository, run hg-tool publish check, show the person the preview it writes, and commit only
+   through the commit step of /hg:publish, after the person's own yes in this session.
 
 ## Inbox mode (`--inbox`)
 
@@ -41,14 +46,16 @@ Use repo-relative paths only (`vault/raw/...`), never absolute ones.
    `cross`), raw kind (meetings, interviews, snapshots, sources), dated slug, confidence, one-line
    reason. Present all rows as one table and ask for one approval.
 3. On approval, run `/hg:import-source <file> --project <p> --kind <kind>` per approved row (it wraps the
-   frontmatter and moves the file into `vault/raw/`), then ingest each moved file.
+   frontmatter and moves the file into `vault/raw/`), then ingest each moved file. Start `hg:publish` once, after
+   the last one.
 4. Rows below 0.6 confidence stay in the inbox and are listed as "needs a human".
 
 ## Binary, large and PII-bearing sources
 
-PDF, office files, images, anything over 1 MB, and any source carrying personal data become a
+PDF, office files, images, anything over 1 MB, and any source whose raw frontmatter says `pii: true` become a
 `source-summary` stub only (`extraction: unextracted`), never extracted pages. Extraction of a binary
-source is a later, explicit step; a PII stub stays unextracted for good.
+source is a later, explicit step; a PII stub stays unextracted for good. A source that only names people or holds
+their contact details is ingested like any other: people become roles, and no name or contact detail reaches a page.
 
 ## Plan cache
 
@@ -60,9 +67,13 @@ source is a later, explicit step; a PII stub stays unextracted for good.
 
 - The ops summary: one row per edit or new page (op, page, section, confidence).
 - The log line appended to `vault/log.jsonl` (op `ingest`, or `rejected_ingest_scope` / `conflict`).
+- The left-out report under `.gateway/leftout/`: what the librarian cut from the source, which the preview of
+  `/hg:publish` shows. It stays on this computer.
 
 ## Notes
 
+- Raw sources are private: `vault/raw/` stays on this machine and outside git. The pages cite a source by its
+  reference (`hg-tool raw-ref <path>`), never by its path or name, and the log line holds the reference.
 - The librarian takes the `wiki-<project>` lock with `--no-steal`. If it is held, it stops and names
   the holder; release it yourself only after confirming no other session is writing.
 - Hooks: `vault/raw/` is in `FORBIDDEN_WRITE_PATHS`. Guard hooks block a forbidden write by exiting 2

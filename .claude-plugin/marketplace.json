@@ -1,12 +1,12 @@
 {
   "name": "human-gateway",
   "owner": { "name": "JK-G" },
-  "description": "Human Gateway: a department's knowledge in git, with approvals that reopen when their inputs change.",
+  "description": "Human Gateway: a second brain for a person or a department that shares through a checked preview and your own yes, with approvals that reopen when what they rest on changes.",
   "plugins": [
     {
       "name": "hg",
       "source": "./plugins/hg",
-      "description": "Department workspace with a validated wiki, daily notes and approval gates."
+      "description": "A second brain for a person or a department: Claude builds a wiki from your own files, which stay on your computer, shares a page through a check, a preview and your own yes, and keeps approvals that reopen when what they rest on changes."
     }
   ]
 }

@@ -5,11 +5,10 @@ project: acme-notes
 temporal: snapshot
 status: active
 last_verified: 2026-01-20
-source_raw: "raw/acme-notes/meetings/example--2026-01-15-kickoff.md"
-source_hash: "sha1: <computed on ingest>"
+source_raw: "src:meetings:2026-01-15:a5b20b6d"
 extraction: extracted
 extracted_to: ["wiki/decisions/example--2026-01-20-acme-notes-local-first.md", "wiki/concepts/example--acme-notes-offline-sync.md", "wiki/memory/example--acme-notes-release-train.md"]
-sources: ["raw/acme-notes/meetings/example--2026-01-15-kickoff.md"]
+sources: ["src:meetings:2026-01-15:a5b20b6d"]
 aliases: ["acme notes kickoff", "kickoff 2026-01-15"]
 summary: "Kickoff for Acme Notes v1: local-first storage proposed, offline sync scoped, release cadence moved to two weeks, one open question on shared notebooks."
 ---
@@ -18,7 +17,7 @@ summary: "Kickoff for Acme Notes v1: local-first storage proposed, offline sync 
 
 # Source: Acme Notes kickoff (2026-01-15)
 
-Original: `raw/acme-notes/meetings/example--2026-01-15-kickoff.md`. Participants by role only: PM, Eng lead,
+Participants by role only: PM, Eng lead,
 Designer.
 
 ## Key points

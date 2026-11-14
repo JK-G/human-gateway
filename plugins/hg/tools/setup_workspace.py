@@ -8,14 +8,23 @@ Creates whatever is missing from templates/workspace, generates .claude/hg.json 
 the folder is in no repository. Never overwrites an existing file, so a second run changes nothing. Two
 additions, which only add what is missing: an existing .gitignore gets the template's missing lines, because without
 them intake/ reaches git, and an existing .claude/settings.json gets the template's missing permission rules and the
-marketplace, because `claude plugin install --scope project` creates that file first. --project also adds vault/projects/<slug> and vault/raw/<slug>/.
+marketplace, because `claude plugin install --scope project` creates that file first. The permission rules are
+allow, ask (the person is asked before hg-tool publish commit runs) and deny. --project also adds
+vault/projects/<slug>. It creates nothing under vault/raw/: that folder stays outside git, hg-tool raw-add makes the
+folders it needs, and a placeholder file there would exist on one machine only.
 
 CI has no plugin, so the five tools it runs are copied to .github/hg/ (scan.py, notify.py, gate.py, canonicalize.py,
 kit_registry.py). --refresh-ci replaces those copies, the one case where a file is overwritten, and creates
-.github/workflows/hg-scan.yml and hg-notify.yml when they are missing. It never overwrites a workflow file and touches
-nothing else.
+.github/workflows/hg-scan.yml and hg-notify.yml when they are missing. It overwrites a workflow file only when it is
+hg-notify.yml of an earlier release, which passes a secret name notify.py no longer reads. It also adds the missing
+.gitignore lines, as setup does.
 
-Output: created<TAB>path, skipped<TAB>path, updated<TAB>path, note<TAB>text, error<TAB>text, then one summary line.
+Both forms take out of the index the empty placeholders an earlier release made, vault/raw/<slug>/<kind>/.gitkeep,
+once vault/raw/ is ignored (git rm --cached; the files stay on disk). The next /hg:publish sends that deletion. A
+real raw file that is tracked is never touched: whoever maintains the repository runs git rm -r --cached vault/raw.
+
+Output: created<TAB>path, skipped<TAB>path, updated<TAB>path, untracked<TAB>path, note<TAB>text, error<TAB>text, then
+one summary line.
 Exit: 0 ok, 1 a file or git step failed, 2 usage error.
 """
 import argparse
@@ -37,10 +46,11 @@ CI_TOOLS = ("scan.py", "notify.py", "gate.py", "canonicalize.py", "kit_registry.
 CI_DIR = ".github/hg"
 WORKFLOWS = (".github/workflows/hg-scan.yml", ".github/workflows/hg-notify.yml")
 TOKEN_FILES = {"CLAUDE.md", "AGENTS.md"}
-RAW_KINDS = ("meetings", "interviews", "sources", "snapshots")
 MARKETPLACE = "human-gateway"
 SETTINGS = ".claude/settings.json"
 FORBIDDEN_PATHS = ["vault/raw/", "gates/", ".obsidian/"]
+NOTIFY_WORKFLOW = ".github/workflows/hg-notify.yml"
+OLD_SECRET = "secrets.HG_" "SLACK_WEBHOOK_URL"  # what hg-notify.yml of an earlier release passes; in two pieces on purpose
 
 
 class Report:
@@ -114,13 +124,15 @@ def extend_gitignore(root, report):
 
 
 def add_permissions(have, want, report):
-    """Append the rules missing from permissions.allow and .deny. Returns how many were added."""
+    """Append the rules missing from permissions.allow, .ask and .deny. Returns how many were added."""
     permissions = have.setdefault("permissions", {})
     if not isinstance(permissions, dict):
         report.line("note", "%s: permissions is not an object, so it was left as it is and no rule was added" % SETTINGS)
         return 0
     added = 0
-    for kind in ("allow", "deny"):
+    for kind in ("allow", "ask", "deny"):
+        if not want["permissions"].get(kind):
+            continue
         rules = permissions.setdefault(kind, [])
         if not isinstance(rules, list):
             report.line("note", "%s: permissions.%s is not a list, so it was left as it is and no rule was added" % (SETTINGS, kind))
@@ -206,6 +218,7 @@ def write_config(root, args, report):
         "forbiddenWritePaths": FORBIDDEN_PATHS,
         "neverInGit": {"extra": []},
         "scan": {"allow": {"emails": [], "domains": []}, "patterns": {}},
+        "publish": {"words": [], "quoteWords": 12, "off": []},
     }
     create(root, "/".join(kr.CONFIG_PARTS), json.dumps(config, indent=2, ensure_ascii=False) + "\n", report)
 
@@ -224,14 +237,40 @@ def add_project(root, args, report):
         if src.is_file():
             rel = "%s/projects/%s/%s" % (vault, slug, src.relative_to(template).as_posix())
             create(root, rel, fill(src.read_text(encoding="utf-8"), values), report)
-    for kind in RAW_KINDS:
-        create(root, "%s/raw/%s/%s/.gitkeep" % (vault, slug, kind), "", report)
     if slug not in kr.projects(conf):
         report.line("note", "add \"%s\" to projects with: hg-tool conf-set project %s" % (slug, slug))
 
 
+def git_out(root, *args):
+    try:
+        return subprocess.run(["git", "-c", "core.quotepath=off"] + list(args), cwd=str(root), capture_output=True)
+    except OSError:
+        return None
+
+
+def untrack_placeholders(root, report):
+    """Take the tracked, empty vault/raw/<slug>/<kind>/.gitkeep of an earlier release out of the index, once the
+    folder is ignored. Nothing else under vault/raw/ is touched."""
+    vault = kr.load_conf(root)["VAULT_DIR"].replace("\\", "/").strip("/")
+    listed = git_out(root, "ls-files", "-z", "--full-name", "--", "%s/raw" % vault)
+    if listed is None or listed.returncode != 0:
+        return
+    shape = re.compile(re.escape(vault) + r"/raw/[a-z0-9-]+/(?:%s)/\.gitkeep" % "|".join(kr.RAW_KINDS))
+    for rel in sorted(p for p in listed.stdout.decode("utf-8", "replace").split("\0") if shape.fullmatch(p)):
+        size = git_out(root, "cat-file", "-s", ":" + rel)
+        ignored = git_out(root, "check-ignore", "-q", "--no-index", "--", rel)
+        if size is None or size.stdout.strip() != b"0" or ignored is None or ignored.returncode != 0:
+            continue
+        done = git_out(root, "--literal-pathspecs", "rm", "--cached", "-q", "--", rel)
+        if done is not None and done.returncode == 0:
+            report.line("untracked", rel)
+        else:
+            report.line("error", "%s: git rm --cached failed" % rel)
+
+
 def refresh_ci(root):
-    """Replace the five copies CI runs and create a missing workflow. One line per file."""
+    """Replace the five copies CI runs, create a missing workflow, replace an earlier release's notify workflow, add
+    the missing .gitignore lines and untrack the old placeholders. One line per file."""
     if not root.joinpath(*kr.CONFIG_PARTS).is_file():
         print("error\t.claude/hg.json is missing, so this is not a department workspace. Run /hg:setup.")
         return 1
@@ -253,7 +292,24 @@ def refresh_ci(root):
             continue
         report.line("updated" if existed else "created", rel)
     for rel in WORKFLOWS:
-        create(root, rel, (TEMPLATE / rel).read_text(encoding="utf-8"), report)
+        text = (TEMPLATE / rel).read_text(encoding="utf-8")
+        dest = root / rel
+        try:
+            old = rel == NOTIFY_WORKFLOW and dest.is_file() and OLD_SECRET in dest.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            old = False
+        if not old:
+            create(root, rel, text, report)
+            continue
+        try:
+            gate.write_atomic(dest, text)
+        except OSError as exc:
+            report.line("error", "%s: %s" % (rel, exc))
+        else:
+            report.line("updated", rel)
+    if (root / ".gitignore").is_file():
+        extend_gitignore(root, report)
+    untrack_placeholders(root, report)
     return 1 if report.errors else 0
 
 
@@ -318,6 +374,7 @@ def main(argv):
     if args.project:
         add_project(root, args, report)
     git_init(root, report)
+    untrack_placeholders(root, report)
     print("setup: %d created, %d skipped, %d errors in %s" % (report.created, report.skipped, report.errors, root.as_posix()))
     return 1 if report.errors else 0
 

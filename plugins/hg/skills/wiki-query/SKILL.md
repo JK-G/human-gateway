@@ -26,7 +26,9 @@ is the point of the wiki.
    page of any fact they link.
 2. **Synthesize.** Answer from those pages only, in the language of the question. Cite every claim
    with `[[page]]`. Say plainly what the wiki does not know; do not fill gaps from general knowledge
-   without labelling it as such. The wiki only: no external systems.
+   without labelling it as such. The wiki only: no external systems. When the person asks where a page's facts
+   come from, run `hg-tool raw-ref --say <ref>` for each source reference (`src:...`) in its `sources` and copy
+   the sentence it prints. Never present a reference as a link: the file is private and is usually not here.
 3. **Route** (skip with `--no-file`):
 
 | Answer shape | Where it goes | How |
@@ -36,12 +38,16 @@ is the point of the wiki.
 | Pure retrieval, nothing new | chat only | none |
 | Ambiguous (two candidate pages, or unclear if new) | ask the user which | none until answered |
 
-4. **Ask, then file back** (when routed to a write): wiki pages are shared and go out with the next push,
-   so ask first with AskUserQuestion, naming the page that would change or be created. For the ambiguous
-   row this is the same question. Without a yes, nothing is filed and the answer stays in chat.
+4. **Ask, then file back** (when routed to a write): a filed page stays on this computer until `/hg:publish`,
+   and then the whole department reads it, so ask first with AskUserQuestion, naming the page that would change
+   or be created. For the ambiguous row this is the same question. Without a yes, nothing is filed and the answer
+   stays in chat.
    On yes, dispatch the `hg:wiki-librarian` subagent with the answer, the pages read, and the routing
-   decision. It takes the lock, builds a plan with `op: file_back`, validates it, applies it, and
-   regenerates the index.
+   decision. It takes the lock, builds a plan with `op: file_back`, validates it, applies it, regenerates the
+   index and stores a left-out report with `op: "file_back"`. Then start `hg:publish` with the Skill tool: its
+   question is the person's yes for sending. Before any commit in a department repository, run hg-tool publish
+   check, show the person the preview it writes, and commit only through the commit step of /hg:publish, after
+   the person's own yes in this session.
 5. **Log.** One `query` line for every answered question; one `file_back` line listing the written
    pages in `outputs` when something was filed. Both through `hg-tool log` (the
    librarian writes them when it is involved).

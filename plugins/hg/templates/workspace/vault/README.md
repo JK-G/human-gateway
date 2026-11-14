@@ -1,7 +1,8 @@
 # The vault
 
 The vault is the knowledge layer of the workspace: plain Markdown with YAML frontmatter, tracked in git,
-written by agents through a validated pipeline and readable by any human or tool.
+written by agents through a validated pipeline and readable by any human or tool. Three folders are the
+exception: `raw/`, `inbox/` and `daily/` hold a person's own files, stay on their computer and are never in git.
 
 ## Open it in Obsidian (optional)
 
@@ -25,7 +26,8 @@ Pages live in `wiki/<type>/`, not `wiki/<project>/`:
   `index-<type>.md` files group by project.
 
 Raw sources are the exception: they are partitioned per project under `raw/<project>/`, because sources are
-naturally project-scoped and heavy.
+naturally project-scoped and heavy. They are a person's own files, on their computer only and never in git, so a
+page cites one by its source reference (`src:<kind>:<date>:<hash>`), never by its path or name.
 
 ## Living vs snapshot
 
@@ -47,6 +49,11 @@ readable and every change is reversible in git.
   to `log.jsonl`.
 - **Humans** may edit any page directly. Keep the frontmatter valid (see [schema.md](schema.md)) and run
   `hg-tool validate-frontmatter` afterwards.
+- **Publishing.** A page, written by an agent or edited by hand, reaches the department's repository through
+  `/hg:publish`: `hg-tool publish check` runs the same checks on it, writes a preview of exactly what goes out and
+  what was left out, and the commit is made on the person's own yes. Before any commit in a department
+  repository, run hg-tool publish check, show the person the preview it writes, and commit only through the commit
+  step of /hg:publish, after the person's own yes in this session. Nothing enforces this.
 - **Nobody** hand-edits `journal/`, `raw/` after capture, `log.jsonl` or the generated `index*.md` files.
 
 ## Start here
@@ -54,4 +61,5 @@ readable and every change is reversible in git.
 1. Drop a file into `inbox/` (copy `inbox/_template.md`) or bring a source in with `/hg:import-source`.
 2. Run `/hg:ingest <path>`, or `/hg:ingest --inbox` for everything in `inbox/`.
 3. Ask questions with `/hg:wiki-query "..."`; useful answers are filed back as pages.
-4. Create a new project space with `hg-tool setup --project <slug>`.
+4. Write `opublikuj` or run `/hg:publish` to send the new pages to the department.
+5. Create a new project space with `hg-tool setup --project <slug>`.

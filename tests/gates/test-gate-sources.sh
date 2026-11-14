@@ -16,13 +16,13 @@ bad()  { FAIL=$((FAIL+1)); echo "FAIL - $1"; [ -n "${2:-}" ] && printf '%s\n' "$
 t()    { if eval "$1"; then ok "$2"; else bad "$2" "${3:-}"; fi; }
 
 W="$TMP/dept"
-mkdir -p "$W/.claude" "$W/vault/projects/acme-notes" "$W/vault/raw/acme-notes" "$W/vault/journal"
+mkdir -p "$W/.claude" "$W/vault/projects/acme-notes" "$W/vault/journal"
 cp "$PLUGIN/templates/workspace/.gitignore" "$W/.gitignore"
 cat > "$W/.claude/hg.json" <<'CONF'
 { "schemaVersion": 1, "projects": ["acme-notes"], "timezone": "UTC", "language": { "content": "pl" } }
 CONF
 cp "$W/.claude/hg.json" "$TMP/conf.orig"
-printf '# Brief\n\nThe first sentence.\n' > "$W/vault/raw/acme-notes/brief.md"
+printf '# Brief\n\nThe first sentence.\n' > "$W/vault/projects/acme-notes/brief.md"
 git -C "$W" init -q
 git -C "$W" config user.email reviewer@example.com
 git -C "$W" config user.name Reviewer
@@ -30,7 +30,7 @@ git -C "$W" config core.autocrlf false
 commit() { git -C "$W" add -A && git -C "$W" commit -q -m "$1"; }
 commit base
 export CLAUDE_PROJECT_DIR="$W"
-B=vault/raw/acme-notes/brief.md
+B=vault/projects/acme-notes/brief.md
 TASK=https://app.clickup.example/t/86abc
 BOARD=https://miro.example/app/board/uXjVabc=/
 Q="'"   # a single quote, for expressions that compare with the printed command
@@ -86,7 +86,7 @@ run mk src --source "roadmap=$TASK" --watch roadmap=date_updated --source "tabli
 $PY - "$W/gates/src.md" "$TASK" "$BOARD" <<'PY'
 import sys
 text = open(sys.argv[1], encoding="utf-8").read()
-want = ("inputs:\n  - vault/raw/acme-notes/brief.md\nsources:\n  - id: roadmap\n    url: \"%s\"\n    watch: date_updated\n"
+want = ("inputs:\n  - vault/projects/acme-notes/brief.md\nsources:\n  - id: roadmap\n    url: \"%s\"\n    watch: date_updated\n"
         "  - id: tablica\n    url: \"%s\"\n---\n" % (sys.argv[2], sys.argv[3]))
 sys.exit(0 if want in text else 1)
 PY

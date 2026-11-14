@@ -70,6 +70,36 @@ bash_case 2 "cat > code/x <<'EOF'
 hello
 EOF"
 
+# --- guard-bash: git forms that leak or destroy a person's own files (private folders) ----------
+bash_case 2 'git mv vault/inbox/n.md vault/raw/acme-notes/n.md'
+bash_case 2 'git add -f vault/raw/acme-notes/a.md'
+bash_case 2 'git add --force x'
+bash_case 2 'git add --forc x'
+bash_case 2 'git add --fo x'
+bash_case 2 'git add -Af'
+bash_case 2 'cd vault && git add -f raw/x.md'
+bash_case 2 'git -C vault add -f raw/x.md'
+bash_case 0 'git add -A'
+bash_case 0 'git add vault/wiki/concepts/a.md'
+bash_case 0 'git add --all'
+bash_case 0 'git add -- -f'
+bash_case 2 'git clean -fdx'
+bash_case 2 'git clean -X -f'
+bash_case 0 'git clean -n'
+bash_case 2 'git stash -a'
+bash_case 2 'git stash --all'
+bash_case 2 'git stash push -ua'
+bash_case 0 'git stash list'
+bash_case 2 'git update-index --add vault/raw/acme-notes/a.md'
+bash_case 2 'git update-index --assume-unchanged vault/wiki/a.md'
+bash_case 2 'git mv vault/wiki/a.md vault/inbox/a.md'
+bash_case 2 'git mv a.md intake/a.md'
+bash_case 2 'git mv a.md VAULT/INBOX/a.md'
+bash_case 2 'bash -c "git add -f vault/raw/x.md"'
+bash_case 0 'git mv vault/wiki/a.md vault/wiki/b.md'
+bash_case 0 'git -C /tmp/hg-elsewhere add -f x'
+bash_payload 'git add -f vault/raw/x.md' "$T" | CLAUDE_PROJECT_DIR="$T" HG_GUARD_BYPASS=0 hg guard-bash 2>&1 >/dev/null | grep -q 'git add --force would put a file into git' && ok || bad "guard-bash names what git add --force would do"
+
 # --- guard-bash: must allow (exit 0) ----------------------------------------------------
 bash_case 0 "find . -not -path '*/code/*' 2>/dev/null"
 bash_case 0 'ls code/'
@@ -80,7 +110,6 @@ bash_case 0 'echo hi 2>&1'
 bash_case 0 'echo hi >&2'
 bash_case 0 'git -C code/repo log --oneline'
 bash_case 0 'cd code/repo && git diff | head'
-bash_case 0 'git mv vault/inbox/n.md vault/raw/acme-notes/n.md'
 bash_case 0 'git checkout main'
 bash_case 0 'git checkout -- vault/wiki/concepts/a.md'
 bash_case 0 'git restore vault/wiki/concepts/a.md'
@@ -232,14 +261,26 @@ rm -rf "$G"
 J="$T/journal-repo"; mkdir -p "$J/.claude" "$J/vault"
 cp "$T/.claude/hg.json" "$J/.claude/hg.json"
 ( cd "$J" && git init -q && echo a > vault/a.md )
+jgit() { git -C "$J" -c user.email=t@example.com -c user.name=t "$@"; }
 printf 'garbage {{{' | CLAUDE_PROJECT_DIR="$J" hg journal; rc=$?
 [ "$rc" = 0 ] && ok || bad "journal must exit 0 on garbage (got $rc)"
 DAY="$(TZ=UTC date +%Y-%m-%d)"
 JF="$J/vault/journal/$DAY.md"
 [ -f "$JF" ] && ok || bad "journal did not create $JF"
 grep -q "^# Journal $DAY" "$JF" 2>/dev/null && ok || bad "journal day header missing"
-grep -q 'session unknown: [0-9]* paths: .*vault/a.md' "$JF" 2>/dev/null && ok || bad "journal line missing vault/a.md"
+grep -q 'session unknown: [0-9]* paths (+[0-9]* new)$' "$JF" 2>/dev/null && ok || bad "a new file is counted and not named: $(cat "$JF")"
+grep -q 'vault/a.md' "$JF" && bad "a file HEAD does not have is not named: $(cat "$JF")" || ok
+# A file HEAD has is named. A draft page is counted. A private path git lists (no .gitignore here) is left out.
+jgit add -A; jgit commit -q -m base
+echo b > "$J/vault/a.md"
+mkdir -p "$J/vault/wiki/concepts" "$J/vault/raw/acme-notes/meetings" "$J/intake" "$J/vault/inbox"
+echo d > "$J/vault/wiki/concepts/draft.md"
+echo r > "$J/vault/raw/acme-notes/meetings/2026-01-15-secret-talk.md"; echo i > "$J/intake/cennik-notes.md"; echo n > "$J/vault/inbox/note-one.md"
 printf '{"session_id":"abcdef123456"}' | CLAUDE_PROJECT_DIR="$J" hg journal
+last="$(tail -n 1 "$JF")"
+case "$last" in *"session abcdef12: 2 paths: vault/a.md (+1 new)") ok;; *) bad "a changed file that is in HEAD is named, a new one counted: $last";; esac
+case "$last" in *draft*) bad "a new file is counted and not named: $last";; *) ok;; esac
+case "$last" in *secret-talk*|*cennik*|*note-one*|*raw/*|*intake*|*inbox*) bad "a private path git lists is left out of the journal line: $last";; *) ok;; esac
 grep -q 'session abcdef12:' "$JF" && ok || bad "journal session id not parsed"
 [ "$(grep -c '^- ' "$JF")" = 2 ] && ok || bad "journal should have exactly 2 entries"
 [ -f "$J/.claude/state/journal-last-run" ] && ok || bad "journal-last-run marker missing"
@@ -258,6 +299,22 @@ ls "$T/vault/log/"*.jsonl >/dev/null 2>&1 && ok || bad "log rotation did not cre
 head -n 1 "$T/vault/log.jsonl" | jtrue 'd["op"]=="archive"' && ok || bad "fresh log must start with an archive line"
 while IFS= read -r line; do printf '%s' "$line" | jtrue 'True' || bad "invalid JSON line in log"; done < "$T/vault/log.jsonl"
 grep -q $'\r' "$T/vault/log.jsonl" && bad "log must use LF" || ok
+
+# The log is committed: a person's own files appear in it only as a reference or the word private.
+mkdir -p "$T/vault/raw/acme-notes/meetings" "$T/vault/wiki/concepts"
+printf '# kickoff\n' > "$T/vault/raw/acme-notes/meetings/2026-01-15-kickoff.md"
+REF="$(CLAUDE_PROJECT_DIR="$T" hg raw-ref vault/raw/acme-notes/meetings/2026-01-15-kickoff.md)"
+CLAUDE_PROJECT_DIR="$T" hg log --op ingest --agent test --inputs vault/raw/acme-notes/meetings/2026-01-15-kickoff.md,raw/acme-notes/meetings/2026-01-15-kickoff.md --outputs wiki/concepts/a.md || bad "log with a raw input"
+tail -n 1 "$T/vault/log.jsonl" | jtrue "d['inputs']==['$REF','$REF']" && ok || bad "a raw path in --inputs is written as its reference: $(tail -n 1 "$T/vault/log.jsonl")"
+tail -n 1 "$T/vault/log.jsonl" | jtrue 'd["outputs"]==["wiki/concepts/a.md"]' && ok || bad "a wiki path is written unchanged: $(tail -n 1 "$T/vault/log.jsonl")"
+CLAUDE_PROJECT_DIR="$T" hg log --op ingest --agent test --inputs raw/acme-notes/meetings/2026-01-16-elsewhere.md --note 'read intake/cennik.xlsx and vault/inbox/n1.md, then raw/acme-notes/meetings/2026-01-15-kickoff.md.' || bad "log with private paths"
+tail -n 1 "$T/vault/log.jsonl" | jtrue 'd["inputs"]==["src:unknown"]' && ok || bad "a raw path that is not here is written as src:unknown: $(tail -n 1 "$T/vault/log.jsonl")"
+tail -n 1 "$T/vault/log.jsonl" | jtrue "d['note']=='read private and private, then $REF.'" && ok || bad "an intake path in --note is written as private: $(tail -n 1 "$T/vault/log.jsonl")"
+CLAUDE_PROJECT_DIR="$T" hg log --op ingest --agent test --inputs "$T/vault/raw/acme-notes/meetings/2026-01-15-kickoff.md,./vault/raw/acme-notes/meetings/2026-01-15-kickoff.md,vault/wiki/../raw/acme-notes/meetings/2026-01-15-kickoff.md" \
+  --outputs 'vault\raw\acme-notes\meetings\2026-01-15-kickoff.md' --note 'read vault\raw\acme-notes\meetings\2026-01-15-kickoff.md and intake\cennik.xlsx' || bad "log with other spellings of a raw path"
+tail -n 1 "$T/vault/log.jsonl" | jtrue "d['inputs']==['$REF','$REF','$REF'] and d['outputs']==['$REF']" && ok || bad "an absolute raw path, and one written with ./, .. or a backslash, is written as its reference: $(tail -n 1 "$T/vault/log.jsonl")"
+tail -n 1 "$T/vault/log.jsonl" | jtrue "d['note']=='read $REF and private'" && ok || bad "a private path written with backslashes in --note is rewritten too: $(tail -n 1 "$T/vault/log.jsonl")"
+grep -qE 'kickoff|cennik|elsewhere' "$T/vault/log.jsonl" && bad "no raw or intake file name reaches the log" || ok
 
 echo "$((N - FAILS))/$N assertions passed"
 [ "$FAILS" -eq 0 ]

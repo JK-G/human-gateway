@@ -12,14 +12,19 @@ under `neverInGit.extra` in `.claude/hg.json`. It cannot remove anything from it
 3. **HR data about named people:** pay, reviews, health, employment contracts.
 4. **Statistics per person:** per role and per gate only.
 5. **Signed documents:** contracts, annexes, NDAs. A pointer and a description without data.
-6. **Raw recordings and transcripts with names:** anonymise before saving, because `vault/raw/`
-   is immutable. Record roles, and let the person approve the transcript before it is saved.
+6. **A person's own source files:** conversations, notes, transcripts, recordings, exports. They stay in
+   `vault/raw/` on that person's machine. The repository gets processed pages only.
 7. **Files people work on together:** Figma, spreadsheets, Word. A link.
 
 What stays in git: procedures, playbooks, skills, glossary, policies, PRDs, the decision log and
 gate records.
 
-How it is enforced: a scan before saving and before every commit, and in CI on the host (`hg-tool scan`). A company adds
-its own addresses and patterns under `scan.allow` and `scan.patterns` in `.claude/hg.json`. The
-scan catches secrets and contact data reliably. Points 3 to 6 need judgment, so the agent checks them when it reads a
-source, and that check is not deterministic.
+How it is enforced: a scan before saving, the publish check before every commit (`hg-tool publish check`, which
+runs the scan and checks for private files, names of source files, the department's word list, instruction-shaped
+lines, hidden text and copied runs), and the scan in CI on the host (`hg-tool scan`). Nothing stops a commit made
+with git directly; then only CI scans it, after the push. With
+`--git` the scan also reports any tracked file in a private folder (`vault/raw/`, `vault/inbox/`, `vault/daily/`,
+`intake/`, `.gateway/`). A company adds its own addresses and patterns under `scan.allow` and `scan.patterns` in
+`.claude/hg.json`. The scan catches secrets, contact data and private files reliably. Neither the scan nor any
+other check can judge points 3 to 5, or whether a page carries too much of a person's own file: the agent checks
+that when it reads a source, and that check is not deterministic.

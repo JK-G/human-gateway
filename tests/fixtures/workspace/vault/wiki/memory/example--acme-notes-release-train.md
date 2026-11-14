@@ -5,7 +5,7 @@ project: acme-notes
 temporal: living
 status: active
 last_verified: 2026-01-20
-sources: ["wiki/decisions/example--2026-01-20-acme-notes-local-first.md", "raw/acme-notes/meetings/example--2026-01-15-kickoff.md"]
+sources: ["wiki/decisions/example--2026-01-20-acme-notes-local-first.md", "src:meetings:2026-01-15:a5b20b6d"]
 aliases: ["release train", "release cadence", "hotfix policy"]
 summary: "Acme Notes ships on a two-week release train; hotfixes bypass it only with owner sign-off."
 ---

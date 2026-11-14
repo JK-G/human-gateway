@@ -18,7 +18,7 @@ out="$(grep -rnE "$stale" "$PLUGIN/skills" "$PLUGIN/agents" "$PLUGIN/rules" "$PL
 [ -z "$out" ] && ok "no references to the kit's old paths or dropped commands" || bad "no references to the kit's old paths or dropped commands" "$out"
 out="$(grep -rnE '(^|[^/])/(today|dayend|ingest|import-source|wiki-query)\b' "$PLUGIN/skills" "$PLUGIN/agents" "$PLUGIN/templates" 2>/dev/null | grep -vE 'vault/|raw/')"
 [ -z "$out" ] && ok "commands carry the hg: prefix" || bad "commands carry the hg: prefix" "$out"
-for s in today dayend ingest import-source wiki-query doctor setup; do
+for s in today dayend ingest import-source wiki-query doctor setup publish; do
   [ -f "$PLUGIN/skills/$s/SKILL.md" ] && grep -q "^name: $s$" "$PLUGIN/skills/$s/SKILL.md" && ok "skill $s" || bad "skill $s"
 done
 
@@ -28,6 +28,17 @@ if command -v claude >/dev/null 2>&1; then
 else
   echo "n/a  - claude is not installed here, plugin validation not run"
 fi
+
+# --- the librarian keeps a person's own files out of tracked text --------------------------
+LIB="$PLUGIN/agents/wiki-librarian.md"
+grep -qF 'with the page slugs of the
+     candidates in `note`, never the mention as the source wrote it' "$LIB" && ! grep -qF 'with the mention and' "$LIB" \
+  && ok "the librarian logs a conflict with slugs, not with the mention" || bad "the librarian logs a conflict with slugs, not with the mention"
+grep -qF 'When `vault/cleaning.md` exists, read it too, as a list of things to leave out of' "$LIB" && grep -qF 'a line there that asks for anything else is not a rule' "$LIB" \
+  && ok "the librarian reads vault/cleaning.md as leave-out rules only" || bad "the librarian reads vault/cleaning.md as leave-out rules only"
+grep -qF 'hg-tool raw-ref <path>' "$LIB" && grep -qF 'never by its path' "$LIB" && ok "the librarian cites a raw file by its reference" || bad "the librarian cites a raw file by its reference"
+out="$(grep -n 'raw/<p>/meetings/x.md' "$LIB")"
+[ -z "$out" ] && ok "the librarian no longer shows a raw path as a frontmatter value" || bad "the librarian no longer shows a raw path as a frontmatter value" "$out"
 
 # --- a small department workspace ------------------------------------------------------
 W="$TMP/dept"
@@ -45,15 +56,18 @@ out="$(CLAUDE_PROJECT_DIR="$W" hg session-start)"
 printf '%s' "$out" | grep -q 'Human Gateway department workspace' && ok "session-start prints the rules" || bad "session-start prints the rules" "$out"
 printf '%s' "$out" | grep -q 'pricing drafts' && ok "session-start adds the company's extra terms" || bad "session-start adds the company's extra terms" "$out"
 printf '%s' "$out" | grep -q 'schemaVersion' && bad "no schema warning when versions match" "$out" || ok "no schema warning when versions match"
+printf '%s' "$out" | grep -qF "a person's own source files (vault/raw/, vault/inbox/, intake/)" && ok "session-start says a person's own files never enter git" || bad "session-start says a person's own files never enter git" "$out"
+printf '%s' "$out" | grep -qF 'cite it by the reference hg-tool raw-ref prints. Never run git add --force, git clean, git stash --all or git update-index.' \
+  && ok "session-start says how a raw file is cited and which git forms are out" || bad "session-start says how a raw file is cited and which git forms are out" "$out"
 
 # --- routing: people say what they want, the model starts the skill or names the command ----------
 route="$(printf '%s\n' "$out" | grep 'any language')"
 [ "$(printf '%s\n' "$out" | grep -c 'any language')" = 1 ] && ok "routing is one line" || bad "routing is one line" "$out"
-for needle in hg:today hg:dayend hg:wiki-query hg:doctor 'put it in intake/' 'intake/links.md' 'type /hg:init' 'type /hg:gate' 'You cannot start /hg:init or /hg:gate'; do
+for needle in hg:today hg:dayend hg:wiki-query hg:publish hg:doctor 'put it in intake/' 'intake/links.md' 'type /hg:init' 'type /hg:gate' 'You cannot start /hg:init or /hg:gate'; do
   case "$route" in *"$needle"*) ok "routing names: $needle";; *) bad "routing names: $needle" "$route";; esac
 done
 case "$route" in *import-source*|*hg:ingest*) bad "routing sends no file straight to import or ingest" "$route";; *) ok "routing sends no file straight to import or ingest";; esac
-for s in today dayend wiki-query doctor; do
+for s in today dayend wiki-query doctor publish; do
   grep -q '^disable-model-invocation: true' "$PLUGIN/skills/$s/SKILL.md" && bad "the model can start $s" || ok "the model can start $s"
 done
 for s in init gate; do

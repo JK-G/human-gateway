@@ -4,6 +4,11 @@
   - Append-only, one line per session in <journal>/YYYY-MM-DD.md. guard_write blocks agent edits.
   - The signal is the list of paths changed in the working tree (git status), not the transcript.
     The journal itself, .obsidian and .claude/state are excluded. No names: session id and paths only.
+  - Paths of published files only; new files are counted. The journal is tracked, so a draft page that the
+    person later holds back or deletes must not be named to the department: a path HEAD does not have (git
+    status ?? or A, and a rename or copy target) is counted as (+N new) and never written.
+  - A path in a private folder (vault/raw/, vault/inbox/, vault/daily/, intake/, .gateway/) is dropped. With a
+    correct .gitignore git never lists one; this holds when the .gitignore is broken.
   - Best effort: always exits 0.
   - Touches .claude/state/journal-last-run so /hg:doctor can detect a silent outage.
 
@@ -29,16 +34,18 @@ def session_id(raw):
     return (value or "unknown")[:8]
 
 
-def changed_paths(root, journal):
+def changed_paths(root, journal, conf=None):
+    """[(path, is_new)] from git status, without the journal, editor state and private folders."""
     out = subprocess.run(
         ["git", "-c", "core.quotepath=off", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=all"],
         cwd=str(root), capture_output=True, encoding="utf-8", errors="replace").stdout
     skip = re.compile(r"^(%s/|\.claude/state/)|(^|/)\.obsidian/" % re.escape(journal))
     paths = []
     for line in out.splitlines():
+        code = line[:2]
         path = line[3:].split(" -> ")[-1].replace('"', "")
-        if path and not skip.search(path):
-            paths.append(path)
+        if path and not skip.search(path) and not kr.is_private(path, conf):
+            paths.append((path, code == "??" or "A" in code or code[:1] in ("R", "C")))
     return paths
 
 
@@ -55,12 +62,16 @@ def run():
     state.mkdir(parents=True, exist_ok=True)
 
     sid = session_id(sys.stdin.buffer.read(65536).decode("utf-8", "replace"))
-    paths = changed_paths(root, journal)
+    paths = changed_paths(root, journal, conf)
+    named = [p for p, new in paths if not new]
+    fresh = len(paths) - len(named)
     line = "- %s session %s: %d paths" % (now.strftime("%H:%M"), sid, len(paths))
-    if paths:
-        line += ": " + ", ".join(paths[:MAX_SHOWN])
-        if len(paths) > MAX_SHOWN:
-            line += " (+%d more)" % (len(paths) - MAX_SHOWN)
+    if named:
+        line += ": " + ", ".join(named[:MAX_SHOWN])
+        if len(named) > MAX_SHOWN:
+            line += " (+%d more)" % (len(named) - MAX_SHOWN)
+    if fresh:
+        line += " (+%d new)" % fresh
 
     if not day_file.exists():
         header = "# Journal %s\n\n_Append-only. Written by the SessionEnd hook. Do not hand-edit._\n\n" % now.strftime("%Y-%m-%d")

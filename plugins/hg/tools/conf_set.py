@@ -3,10 +3,14 @@
 
 Usage: hg-tool conf-set readers "role, role"
        hg-tool conf-set project <slug>
+       hg-tool conf-set word '<entry>'
 
 An agent's Edit in .claude/ prompts the person, so what /hg:init saves goes through here.
 readers is stored as a list of roles, because hg.json is tracked and must not name people.
 project appends a kebab-case slug to projects, once.
+word appends one entry to publish.words, once: a word, a stem ending in * (at least 3 characters before it) or a
+phrase, 2 to 60 characters on one line. hg-tool publish check refuses a page that holds one. The list is tracked, so
+everyone who can read the repository can read it.
 Exit: 0 ok, 1 refused, 2 usage error.
 """
 import json
@@ -17,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import kit_registry as kr  # noqa: E402
 
-ALLOWED = ("readers", "project")
+ALLOWED = ("readers", "project", "word")
 
 
 def roles(raw):
@@ -42,6 +46,15 @@ def main(argv):
         if not kr.valid_project_slug(value[0]):
             print("conf-set: a project is a kebab-case slug of at most 40 characters, and not cross or unknown.", file=sys.stderr)
             return 1
+    elif key == "word":
+        value = [raw.strip()]
+        if not value[0]:
+            print("conf-set: give a word.", file=sys.stderr)
+            return 2
+        if not kr.valid_publish_word(value[0]):
+            print("conf-set: a word is 2 to 60 characters on one line; a stem ends in * after at least 3 characters, "
+                  "and no other * is allowed.", file=sys.stderr)
+            return 1
     else:
         value = roles(raw)
         if not value:
@@ -62,7 +75,17 @@ def main(argv):
     if not isinstance(data, dict):
         print("conf-set: .claude/hg.json is not an object and was not changed.", file=sys.stderr)
         return 1
-    if key == "project":
+    if key == "word":
+        section = data.get("publish", {})
+        words = section.get("words", []) if isinstance(section, dict) else None
+        if not isinstance(words, list):
+            print("conf-set: publish.words in .claude/hg.json is not a list and was not changed.", file=sys.stderr)
+            return 1
+        if value[0] in words:
+            print("%s	%s" % (key, value[0]))
+            return 0
+        data["publish"] = dict(section, words=words + value)
+    elif key == "project":
         known = data.get("projects", [])
         known = known.split() if isinstance(known, str) else known
         if not isinstance(known, list):

@@ -18,7 +18,7 @@ projects/<slug>/
   parts become wiki pages (decision, concept) that link back.
 
 Durable knowledge about the project does NOT live here: it lives in `vault/wiki/<type>/` with
-`project: <slug>`. Raw sources live in `vault/raw/<slug>/`.
+`project: <slug>`. Raw sources live in `vault/raw/<slug>/` on the computer of whoever brought them in.
 
 ## Create a project
 
@@ -26,8 +26,7 @@ Durable knowledge about the project does NOT live here: it lives in `vault/wiki/
 hg-tool setup --project my-app
 ```
 
-This copies `_template/`, fills `__SLUG__`, `__NAME__` and `__DATE__`, and creates
-`vault/raw/my-app/{meetings,interviews,sources,snapshots}/`. It never overwrites a file. In an existing
+This copies `_template/` and fills `__SLUG__`, `__NAME__` and `__DATE__`. It never overwrites a file. In an existing
 workspace, then run `hg-tool conf-set project my-app`; the command reminds you.
 
 ## Project detection

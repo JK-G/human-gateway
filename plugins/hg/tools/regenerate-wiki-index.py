@@ -73,7 +73,7 @@ def render_router(conf, reg, pages):
             out.append("- **%s**: %d" % (pr, by_proj[pr]))
     out += ["", "## Layers", "",
             "- `wiki/`: curated pages by type. Contract: [[schema]].",
-            "- `raw/`: immutable sources per project (ingest-only).",
+            "- `raw/`: each person's own source files, on their machine only, never in git. Pages cite them by reference.",
             "- `journal/`: append-only session journal, distilled into `wiki/memory/`.",
             "- `%s`: shared memory, loaded into every session." % vrel("MEMORY_INDEX"),
             "- `%s`: machine op log." % vrel("LOG_FILE"),

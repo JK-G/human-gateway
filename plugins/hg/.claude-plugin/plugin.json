@@ -1,6 +1,6 @@
 {
   "name": "hg",
-  "description": "Department workspace with a validated wiki, daily notes and approval gates.",
+  "description": "A second brain for a person or a department: Claude builds a wiki from your own files, which stay on your computer, shares a page through a check, a preview and your own yes, and keeps approvals that reopen when what they rest on changes.",
   "author": { "name": "JK-G" },
   "license": "MIT"
 }

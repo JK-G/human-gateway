@@ -23,7 +23,7 @@ settings_has_template() {  # every template rule is present, once
   $PY -c 'import json,sys
 want=json.load(open(sys.argv[1],encoding="utf-8"))["permissions"]
 have=json.load(open(sys.argv[2],encoding="utf-8-sig"))["permissions"]
-sys.exit(0 if all(have[k].count(r)==1 for k in ("allow","deny") for r in want[k]) else 1)' "$TEMPLATE" "$1/.claude/settings.json"
+sys.exit(0 if all(have[k].count(r)==1 for k in ("allow","ask","deny") for r in want[k]) else 1)' "$TEMPLATE" "$1/.claude/settings.json"
 }
 INSTALLED='{\n  "enabledPlugins": {\n    "hg@human-gateway": true\n  }\n}\n'
 
@@ -34,7 +34,7 @@ t '[ $rc -eq 0 ]' "setup succeeds over the file the install writes" "$out"
 has "$out" $'^updated\t.claude/settings.json$' "the file is reported as updated"
 hasnt "$out" $'^skipped\t.claude/settings.json$' "the file is not reported as skipped"
 hasnt "$out" 'not applied' "--marketplace is applied"
-t 'settings_has_template "$A"' "every template allow and deny rule is added" "$(cat "$A/.claude/settings.json")"
+t 'settings_has_template "$A"' "every template allow, ask and deny rule is added" "$(cat "$A/.claude/settings.json")"
 settings="$(cat "$A/.claude/settings.json")"
 printf '%s' "$settings" | jtrue 'all(r in d["permissions"]["deny"] for r in ["Edit(vault/raw/**)","Edit(gates/**)"])' && ok "the protected paths are denied" || bad "the protected paths are denied" "$settings"
 printf '%s' "$settings" | jtrue '"Bash(hg-tool *)" in d["permissions"]["allow"]' && ok "hg-tool is allowed" || bad "hg-tool is allowed" "$settings"
@@ -84,7 +84,7 @@ settings="$(cat "$C/.claude/settings.json")"
 printf '%s' "$settings" | jtrue 'd["permissions"]["allow"]==["Bash(npm test)","Bash(hg-tool *)"]' && ok "a custom allow rule is kept in its place" || bad "a custom allow rule is kept in its place" "$settings"
 printf '%s' "$settings" | jtrue 'd["permissions"]["deny"][0]=="Read(./secret/**)"' && ok "a custom deny rule stays first" || bad "a custom deny rule stays first" "$settings"
 printf '%s' "$settings" | jtrue 'd["permissions"]["defaultMode"]=="plan" and d["enabledPlugins"]=={"other@acme":True}' && ok "other values are kept" || bad "other values are kept" "$settings"
-printf '%s' "$settings" | jtrue 'list(d)==["model","permissions","enabledPlugins"] and list(d["permissions"])==["defaultMode","allow","deny"]' && ok "the order of the keys is kept" || bad "the order of the keys is kept" "$settings"
+printf '%s' "$settings" | jtrue 'list(d)==["model","permissions","enabledPlugins"] and list(d["permissions"])==["defaultMode","allow","deny","ask"]' && ok "the order of the keys is kept" || bad "the order of the keys is kept" "$settings"
 grep -qF '"model": "zespół"' "$C/.claude/settings.json" && ok "non-ASCII text is kept" || bad "non-ASCII text is kept" "$settings"
 
 D="$(folder bom '\xef\xbb\xbf{"enabledPlugins": {"hg@human-gateway": true}}\n')"
@@ -120,6 +120,19 @@ has "$out" $'^skipped\t.claude/settings.json$' "and the file is not rewritten"
 cat "$I/.claude/settings.json" | jtrue 'd["permissions"] is True' && ok "they are left alone" || bad "they are left alone" "$(cat "$I/.claude/settings.json")"
 out="$(hg doctor --root "$I")"
 has "$out" $'^WARN\tpermissions\t' "doctor warns when permissions are not an object"
+
+# --- the ask rule: Claude Code asks the person before hg-tool publish commit runs ----------------
+printf '%s' "$(cat "$TEMPLATE")" | jtrue 'd["permissions"]["ask"]==["Bash(hg-tool publish commit *)"]' && ok "the template asks before hg-tool publish commit" || bad "the template asks before hg-tool publish commit" "$(cat "$TEMPLATE")"
+printf '%s' "$(cat "$TEMPLATE")" | jtrue 'not ({"Bash(git commit *)", "Bash(git push *)", "Bash(git pull *)", "Bash(git merge *)"} & set(d["permissions"]["deny"])) and not any(r.startswith("PowerShell(") for k in d["permissions"] for r in d["permissions"][k])'   && ok "the template denies no git commit, push, pull or merge, and has no PowerShell rule" || bad "the template denies no git commit, push, pull or merge, and has no PowerShell rule" "$(cat "$TEMPLATE")"
+K="$(folder no-ask '{"permissions": {"allow": ["Bash(hg-tool *)"], "deny": []}}
+')"
+out="$(hg setup --root "$K" --name Dept)"
+cat "$K/.claude/settings.json" | jtrue 'd["permissions"]["ask"]==["Bash(hg-tool publish commit *)"]' && ok "setup adds the ask rule to settings that lack it" || bad "setup adds the ask rule to settings that lack it" "$(cat "$K/.claude/settings.json")"
+jedit "$K/.claude/settings.json" "$TMP/noask.json" 'd["permissions"]["ask"]=[]'
+cp "$TMP/noask.json" "$K/.claude/settings.json"
+out="$(hg doctor --root "$K")"
+has "$out" $'^WARN	permissions	ask rules missing from .claude/settings.json: Bash(hg-tool publish commit \*)' "doctor warns when the ask rule is missing"
+hasnt "$out" $'^OK	permissions' "and does not say the rules are in place"
 
 # --- doctor warns when a deny rule is missing ------------------------------------------------
 jedit "$A/.claude/settings.json" "$TMP/fewer.json" 'd["permissions"]["deny"].remove("Edit(gates/**)")'

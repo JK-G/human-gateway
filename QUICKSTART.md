@@ -1,6 +1,6 @@
 # Szybki start
 
-Po tych krokach pusty folder staje się przestrzenią roboczą działu: z wiki, notatkami dziennymi i bramkami zatwierdzeń. Instrukcja jest dla pierwszej osoby w dziale.
+Po tych krokach masz drugi mózg dla siebie i dla działu. Claude pracuje na Twoim własnym kontekście: buduje wiki z Twoich plików, takich jak notatki, rozmowy i eksporty, a te pliki zostają na Twoim komputerze, poza gitem. Strony powstają najpierw tylko u Ciebie. Gdy chcesz się czymś podzielić, Claude sprawdza zmiany, pokazuje podgląd tego, co wyjdzie i co pominął, i pyta o Twoją zgodę. Zatwierdzenia, czyli bramki, otwierają się ponownie, gdy zmieni się to, na czym się opierają. Instrukcja jest dla pierwszej osoby w dziale.
 
 Jeśli dział ma już repozytorium, idź za instrukcją dla kolejnej osoby: [QUICKSTART-druga-osoba.md](QUICKSTART-druga-osoba.md).
 
@@ -66,26 +66,34 @@ Gdy się skończą, wpisz po kolei:
 
 ### Zapisz wynik
 
-Poproś Claude'a o commit, czyli zapis plików w historii zmian. Potem poproś o wysłanie repozytorium w prywatne miejsce, które otworzą tylko osoby mające je czytać.
+Załóż na GitHubie prywatne repozytorium, które otworzą tylko osoby mające je czytać. Skopiuj jego adres i napisz:
+
+```
+Dodaj repozytorium <adres> i opublikuj
+```
+
+Claude sprawdzi zmiany i pokaże podgląd: pliki z pluginu tylko z nazwy, pliki tego działu w całości. Zapyta, czy mogą wyjść do działu, a potem Claude Code zapyta jeszcze, czy może uruchomić polecenie, które zapisuje zmiany. Po obu odpowiedziach zmiany trafiają do historii i są wysyłane. Później wystarczy samo „opublikuj”.
+
+To zasada, której Claude się trzyma; nic jej nie wymusza. Zwykłe polecenia gita nadal zapisują i wysyłają zmiany, bez kontroli i bez podglądu. Narzędzia gwarantują tylko tyle: polecenie publikacji zapisuje dokładnie to, co było w podglądzie, i tylko wtedy, gdy kontrola niczego nie zatrzymała.
 
 Kolejnym osobom w dziale wyślij plik [QUICKSTART-druga-osoba.md](QUICKSTART-druga-osoba.md), z adresem repozytorium wpisanym w miejsce `<adres repozytorium>`.
 
-### Wiadomość na Slacku
+### Wiadomość na kanale działu
 
-Repozytorium może pisać na kanał działu na Slacku, gdy bramka zaczyna czekać na zatwierdzenie, a w dni robocze rano wysyła listę tego, co czeka. Potrzebujesz:
+Repozytorium może pisać na kanał działu, gdy bramka zaczyna czekać na zatwierdzenie, a w dni robocze rano wysyła listę tego, co czeka. Działa ze Slackiem, z Microsoft Teams i z każdym narzędziem, które przyjmuje webhook JSON. Potrzebujesz:
 
 - repozytorium na GitHubie, wysłanego jak wyżej,
-- adresu webhooka dla kanału działu. Tworzy się go w Slacku (Incoming Webhook). Czasem może to zrobić tylko administrator Slacka.
+- adresu webhooka dla kanału działu. W Slacku to Incoming Webhook i czasem może go utworzyć tylko administrator. W Teams wybierasz w menu kanału Workflows i szablon „Send webhook alerts to a channel”.
 
 Wpisz:
 
 ```
-/hg:setup --slack
+/hg:setup --nodes
 ```
 
-Claude przeprowadzi Cię przez trzy kroki: otworzysz stronę GitHuba, którą Ci poda, wpiszesz tam nazwę `HG_SLACK_WEBHOOK_URL`, wkleisz adres webhooka i zapiszesz. Adres wklejasz tylko na tej stronie, nigdy w rozmowie z Claude'em ani w pliku. Jeśli trafił gdzie indziej, usuń ten webhook w Slacku i utwórz nowy. Na koniec Claude wyśle wiadomość próbną i zapyta, czy dotarła na kanał. Zielony znaczek na GitHubie tego nie potwierdza. Liczy się tylko to, czy widzisz wiadomość na kanale.
+Claude pokaże listę węzłów, czyli dodatków, które można podłączyć. Wybierz komunikator i powiedz, którego narzędzia używa dział. Claude najpierw opublikuje ustawienia komunikatora: zobaczysz podgląd i odpowiesz na te same dwa pytania co przy publikacji. Potem otworzysz stronę GitHuba, którą Ci poda, wpiszesz tam nazwę `HG_NOTIFY_WEBHOOK_URL`, wkleisz adres webhooka i zapiszesz. Adres wklejasz tylko na tej stronie, nigdy w rozmowie z Claude'em ani w pliku. Jeśli trafił gdzie indziej, usuń ten webhook i utwórz nowy. Na koniec Claude wyśle wiadomość próbną i zapyta, czy dotarła na kanał. Zielony znaczek na GitHubie tego nie potwierdza. Liczy się tylko to, czy widzisz wiadomość na kanale.
 
-Ustaw w Slacku powiadomienia tego kanału na każdą nową wiadomość, inaczej nikt nie dostanie sygnału.
+Ustaw powiadomienia tego kanału na każdą nową wiadomość, inaczej nikt nie dostanie sygnału.
 
 ### Zbierz to, co dział już ma
 
@@ -97,9 +105,19 @@ Wrzuć pliki do folderu `intake/`, a linki wypisz w pliku `intake/links.md`. Pot
 
 Claude przeczyta materiały i zapisze mapę kontekstu: co skąd pochodzi, czego brakuje i co się z czym nie zgadza. Zada najwyżej 5 pytań. Za pierwszym razem jedno z nich brzmi: kto może czytać to repozytorium.
 
-Zanim zapisze strony wiki i szkice bramek, pokaże Ci jedną listę do akceptacji.
+Strony wiki i szkice bramek powstają najpierw tylko na Twoim komputerze. Potem Claude pokaże podgląd wszystkiego, co wyjdzie, i tego, co pominął, i zada jedno pytanie: czy to może wyjść do działu. Claude Code zapyta jeszcze raz, czy może uruchomić polecenie, które zapisuje zmiany.
 
-Folder `intake/` nie trafia do gita. Plik, w którym skaner znajdzie sekret albo dane osobowe, zostaje w tym folderze, a Claude Ci o nim powie. Arkusze, dokumenty Word, prezentacje i pliki projektowe nie wchodzą do repozytorium: zostaje streszczenie i odnośnik. Link do systemu, do którego ta sesja nie ma dostępu, zostaje samym linkiem.
+Pliki z `intake/` zostają na Twoim komputerze, poza gitem: Claude przenosi je do `vault/raw/`. Do repozytorium trafiają strony, a w nich odwołanie do źródła zamiast nazwy pliku. Plik, w którym skaner znajdzie sekret, zostaje w `intake/` i nikt go nie otwiera, a Claude Ci o nim powie. Plik z danymi kontaktowymi przechodzi dalej i zostaje u Ciebie, a na stronach osoby występują jako role. Arkusze, dokumenty Word, prezentacje i pliki projektowe też zostają u Ciebie: repozytorium dostaje streszczenie i odnośnik. Link do systemu, do którego ta sesja nie ma dostępu, zostaje samym linkiem.
+
+### Twoje pliki
+
+Twoje pliki źródłowe są tylko na tym komputerze: w `intake/`, `vault/inbox/` i `vault/raw/`, a notatki dnia w `vault/daily/`. Nikt nie robi ich kopii zapasowej i nie mają historii zmian. Jeśli stracisz dysk, stracisz je, a strony zrobione z nich zostaną w repozytorium. Kopię możesz zrobić sam, kopiując folder `vault/raw/`. Gdy wróci na swoje miejsce, odwołania na stronach znów wskażą pliki.
+
+Osoby z działu widzą tylko, że strona ma prywatne źródło, jakiego rodzaju i z jakiego dnia. Pliku nie zobaczą.
+
+### Gdy ktoś opublikował coś w międzyczasie
+
+Jeśli ktoś z działu wysłał zmiany przed Tobą, Claude pobierze je i wyśle Twoje jeszcze raz. Gdy oboje zmieniliście to samo miejsce, Claude połączy oba teksty, pokaże Ci wynik i zapyta, czy go zapisać. Tego połączonego tekstu kontrola automatyczna nie sprawdza, więc przeczytaj go uważnie.
 
 ### Na co dzień piszesz po polsku, czego chcesz
 
@@ -108,6 +126,7 @@ Nie musisz pamiętać poleceń. Napisz na przykład:
 - `co mam dziś`
 - `co wiemy o cenach`
 - `kończę na dziś`
+- `opublikuj`
 - `coś nie działa`
 
 Na pytanie o wiedzę działu Claude odpowie na podstawie wiki. Gdy odpowiedź wnosi coś nowego, zapyta, czy zapisać ją w wiki.
@@ -120,4 +139,4 @@ Bramka to zapis, że wskazane pliki zostały zatwierdzone, i kto za nie odpowiad
 
 Bramka może też wskazywać link do innego systemu, na przykład zadania albo tablicy. Na początku dnia Claude sprawdza, czy to źródło się zmieniło, jeśli ta sesja umie je odczytać. Jeśli nie umie, powie Ci o tym. Wtedy możesz sam zajrzeć do źródła i napisać, czy coś się zmieniło. Przed zatwierdzeniem bramki Claude zapyta Cię o takie źródło wprost.
 
-Notatka dnia zostaje na Twoim komputerze. Plik `DASHBOARD.md` w folderze działu pokazuje bramki, projekty i aktywność i odświeża się sam.
+Plik `DASHBOARD.md` w folderze działu pokazuje bramki, projekty i aktywność i odświeża się sam.

@@ -23,8 +23,8 @@ is approved is the summary in this repo, and a source tells when that summary ma
   until the next approval.
 - It is **unchecked** when the approval holds but the newest recorded check of a source is more than N days
   old. N is `gates.sourceCheckDays` in `.claude/hg.json`, default 7.
-- Observation files hold no person. Commit them with the rest, so others and the department's channel see a
-  change.
+- Observation files hold no person. Publish them with the rest through `/hg:publish`, so others and the
+  department's channel see a change.
 - After a source got another link or field, the files of the old one stay in `<id>.obs/` and no longer count.
 
 ## Rules
@@ -36,8 +36,11 @@ is approved is the summary in this repo, and a source tells when that summary ma
   That person answers for the content even if they did not read it.
 - An approval made by an agent appears in that person's `/hg:today` for as long as it is the gate's
   latest approval, however old it is. Once a later approval replaces it, it stays listed for 14 days.
-- Every input and the gate file itself must be committed before approval, because nobody else could
-  check an uncommitted file. Commit the `.lock.json` afterwards so others see the approval.
+- An input is a tracked file, usually a published wiki page. A raw file, or any file in `vault/raw/`,
+  `vault/inbox/` or `intake/`, cannot be one: it stays on one computer, so nobody else could check it.
+- Every input and the gate file itself must be published (committed through `/hg:publish`) before approval,
+  because nobody else could check an uncommitted file. Publish the `.lock.json` afterwards so others see the
+  approval.
 
 ## Known limits
 

@@ -11,8 +11,12 @@ organized by **type**; the owning project is a frontmatter value, never a folder
 
 - Machine contract: the `kit:type-registry` block below, parsed only by `.claude/tools/kit_registry.py`.
   Never hand-mirror it into another file (validators, the index generator and docs import or link it).
-- Paths in frontmatter (`sources`, `source_raw`, `derived_from`, `canonical_page`) are relative to the
-  vault root, for example `raw/acme-notes/meetings/2026-01-15-kickoff.md`.
+- Paths in frontmatter (`sources`, `derived_from`, `superseded_by`) are relative to the vault root, for example
+  `wiki/concepts/acme-notes--offline-sync.md`.
+- A raw file is a person's own file and stays on their computer, outside git. No tracked file names one: a page
+  cites it by its source reference, `src:<kind>:<YYYY-MM-DD>:<8 hex digits>` (`hg-tool raw-ref <path>` prints
+  it), for example `src:meetings:2026-01-15:3fa94c1e`. A page body never names a file in `raw/`, `inbox/` or
+  `intake/`.
 
 ## Universal frontmatter
 
@@ -23,13 +27,13 @@ organized by **type**; the owning project is a frontmatter value, never a folder
 | `temporal` | `living` \| `snapshot` | `living` = current truth, refreshed when stale. `snapshot` = frozen record, never auto-edited or auto-deleted. |
 | `status` | `active` \| `superseded` \| `retracted` | Lifecycle. Autonomous cleanup only ever sets `superseded`. |
 | `last_verified` | `YYYY-MM-DD` | When a human or agent last confirmed the page is current. Drives staleness. |
-| `sources` | `[path, ...]` | Provenance into `raw/`, `journal/` or another page. Empty only for hand-written pages. |
+| `sources` | `[entry, ...]` | Provenance. Each entry is a source reference (`src:...`), a wiki page (`wiki/<...>.md`) or a journal day (`journal/YYYY-MM-DD.md`). Empty only for hand-written pages. |
 | `aliases` | `[string, ...]` | Other names for the subject (synonyms, abbreviations, other-language forms). Entity resolution. |
 | `summary` | one sentence | Required by every default type. Used by the index generator and `/wiki-query`. |
 | `canonical_for` | `[fact-slug, ...]` (optional) | Fact-slugs this page owns. Other pages link or transclude, never restate. |
 | `tags` | `[kebab-case, ...]` (optional) | Discovery tags from `wiki/TAGS.md`. Soft-enforced (lint INFO). |
-| `derived_from` | `[path, ...]` (optional) | Set on pages filed back from a `/wiki-query` answer: the pages the answer was built from. |
-| `superseded_by` | path (optional) | Set together with `status: superseded`: the page or source that replaced this one. |
+| `derived_from` | `[entry, ...]` (optional) | Set on pages filed back from a `/wiki-query` answer: the pages the answer was built from. Same entries as `sources`. |
+| `superseded_by` | entry (optional) | Set together with `status: superseded`: the page or source that replaced this one. Same entries as `sources`. |
 
 Rules: do not invent keys. A key not in this table or in the type's `required` list is a validator WARN.
 The slug is the filename stem; there is no `slug:` key.
@@ -97,7 +101,7 @@ types:
 | `concept` | An idea, feature, mechanism, policy or pattern. The workhorse type. | living | none |
 | `entity` | A named thing: competitor, organization, tool, team role, segment. People appear by role only. | living | `kind`: `organization`, `competitor`, `tool`, `role`, `segment`, `other` |
 | `decision` | One decision with context, options, rationale and a review date. | **snapshot** | `decided`: `YYYY-MM-DD` |
-| `source-summary` | A lightweight stub per raw source (binary, large or PII-bearing). | snapshot | `source_raw` (path), `extraction`: `unextracted`, `partial`, `extracted`, `obsolete`; optional `source_hash`, `extracted_to: []` |
+| `source-summary` | A summary per raw source, and also the page for a summary of an outside link. A stub for a binary or large source. | snapshot | `source_raw` (a source reference), `extraction`: `unextracted`, `partial`, `extracted`, `obsolete`; optional `source_url` (one `http(s)` link), `extracted_to: []` |
 | `research` | A discrete finding with evidence (analysis, benchmark, survey result). | living | none |
 | `memory` | A durable workspace fact, convention or decision every session should know. | living | none |
 
@@ -122,7 +126,7 @@ types:
 
 `raw/` is partitioned per project: `raw/<project>/{meetings,interviews,sources,snapshots}/`.
 A change plan that proposes a page type outside its source's row is rejected and logged as
-`rejected_ingest_scope`.
+`rejected_ingest_scope`. The paths in this map are local to the machine that holds the source.
 
 | Raw source type | Path glob | May create or update |
 |---|---|---|
@@ -141,8 +145,9 @@ The wiki links TO a PRD; it never restates or supersedes it.
 
 - Binary (pdf, docx, xlsx, images) or over ~1 MB: create a `source-summary` stub only, with
   `extraction: unextracted`. Extraction into typed pages is a later, explicit step.
-- PII-bearing (contracts, customer exports, legal text with personal data): the stub stays
-  `unextracted` for good. Only anonymized patterns may reach a wiki body; raw PII never enters git.
+- Raw frontmatter `pii: true` (contracts, customer exports, legal text with personal data): the stub stays
+  `unextracted` for good. Names of people alone do not force a stub: the page writes people as roles and leaves
+  out their contact details. Raw files never enter git.
 
 ## Atomicity
 
@@ -191,7 +196,7 @@ With a second content language, `aliases` carry both languages plus diacritic-st
 Write it only through `.claude/tools/log-append.sh`, never by hand. One JSON object per line:
 
 ```json
-{"ts":"2026-01-20T09:12:00Z","op":"ingest","agent":"wiki-librarian","project":"acme-notes","inputs":["raw/acme-notes/meetings/2026-01-15-kickoff.md"],"outputs":["wiki/decisions/acme-notes--2026-01-20-local-first.md"],"status":"applied","note":""}
+{"ts":"2026-01-20T09:12:00Z","op":"ingest","agent":"wiki-librarian","project":"acme-notes","inputs":["src:meetings:2026-01-15:3fa94c1e"],"outputs":["wiki/decisions/acme-notes--2026-01-20-local-first.md"],"status":"applied","note":""}
 ```
 
 `status`: `applied`, `queued`, `skipped`, `failed`, `blocked`. `project` defaults to `cross`.

@@ -11,15 +11,22 @@ Usage: hg-tool raw-add <file> --project <slug> --kind <kind> --date YYYY-MM-DD -
 The destination is vault/raw/<project>/<kind>/<date>-<slug><ext>, with the suffix lower-cased and .txt becoming
 .md. It is printed as a repo-relative path. The file is moved, not copied.
 
+vault/raw/ is a person's own folder: it stays on this computer, outside git, with no backup and no history. So
+the tool refuses when git does not ignore the destination (or the folder is not a repository), and refuses a
+source that git tracks: a raw file is never in git. Pages cite a raw file by the reference hg-tool raw-ref prints.
+
 Only the two folders where files wait to be brought in are accepted, so the tool cannot take away a gate record,
 the journal, the log or the repo's settings.
 
-The file goes through the same scan as hg-tool scan. A finding stops the move and is printed masked. A binary
-file the scan could not read is allowed and noted on stderr, because the skill has the agent look through it.
-A tracked file must be staged exactly as it is on disk: git mv carries the staged version, which the scan has not read.
+The file goes through the same scan as hg-tool scan. The scan no longer protects git, because raw never reaches
+git. It keeps a known secret out of the material a model reads and rewrites: a secret, or a file that holds
+secrets (.pem, .env), stops the move and is printed masked. Contact data in a person's own file is expected, so
+it is counted in a note on stderr, never printed. A file people usually work on elsewhere (a spreadsheet, a Word
+file) moves with a note. A binary file the scan could not read moves and is noted, because the skill has the agent
+look through it.
 
-An existing destination is never overwritten: a tracked file moves with git mv, which refuses one, and an
-untracked file takes the name by exclusive create before os.replace puts it there.
+An existing destination is never overwritten: the file takes the name by exclusive create before os.replace puts
+it there.
 
 Claude Code's permissions.deny on vault/raw/ also stops its own mkdir and mv, which is why this tool exists.
 Exit: 0 ok, 1 refused (a value that is not allowed, or a refused file; nothing moved), 2 usage error.
@@ -102,30 +109,14 @@ def destination_of(root, base, full, opts):
     return folder / name
 
 
-def taken(root, dest, dest_rel):
-    """os.path.lexists also sees a dangling link. A name still in the index would come back at the next commit."""
-    return os.path.lexists(str(dest)) or is_tracked(root, dest_rel)
+def taken(dest):
+    """os.path.lexists also sees a dangling link."""
+    return os.path.lexists(str(dest))
 
 
 def is_tracked(root, rel):
     out = gate.git(root, "ls-files", "--error-unmatch", "--", rel)
     return out is not None and out.returncode == 0
-
-
-def staged_as_on_disk(root, rel):
-    """Compares content because git diff trusts git update-index flags. hash-object cleans line endings as git add does."""
-    staged = gate.git(root, "ls-files", "--stage", "-z", "--", rel)
-    disk = gate.git(root, "hash-object", "--", rel)
-    if staged is None or disk is None or staged.returncode != 0 or disk.returncode != 0:
-        return False
-    entries = list(filter(None, staged.stdout.split("\0")))  # an unfinished merge has one entry per side
-    return len(entries) == 1 and entries[0].split()[1] == disk.stdout.strip()
-
-
-def move_tracked(root, rel, dest_rel):
-    out = gate.git(root, "mv", "--", rel, dest_rel)
-    if out is None or out.returncode != 0:
-        raise gate.Refused("git mv refused, so nothing moved: %s" % gate.one_line(out.stderr if out else "git is not installed"))
 
 
 def move_untracked(full, dest):
@@ -157,25 +148,33 @@ def add(root, argv):
     full, rel = source_of(root, positional[0], raw_parts)
     dest = destination_of(root, base, full, opts)
     dest_rel = dest.relative_to(root).as_posix()
-    if taken(root, dest, dest_rel):
+    if taken(dest):
         raise gate.Refused("%s already exists. Raw files are never overwritten: pick a new slug or date." % dest_rel)
+    if is_tracked(root, rel):
+        raise gate.Refused("%s is tracked by git. A raw source stays out of git: take it out of git first "
+                           "(git rm --cached), then bring it in." % rel)
+    if not gate.is_ignored(root, dest_rel):  # a folder with no repository fails this too
+        raise gate.Refused("%s/raw/ is not kept out of git in this folder, so a raw file could be committed. "
+                           "Run /hg:setup, then try again." % conf["VAULT_DIR"].strip("/"))
 
     unread = []
     findings = scan.scan_file(str(full), rel, scan.load_config(str(config)), unread)
-    if findings:
-        for item in findings:
+    secrets = [f for f in findings if f["kind"] == "secret" or (f["kind"] == "filetype" and f["value"] == "secret file")]
+    if secrets:
+        for item in secrets:
             print("%s:%d	%s	%s" % (item["path"], item["line"], item["kind"], item["value"]))
-        raise gate.Refused("the scan found %d thing(s) that must not enter git. Nothing moved." % len(findings))
-
-    tracked = is_tracked(root, rel)
-    if tracked and not staged_as_on_disk(root, rel):
-        raise gate.Refused("%s is staged in a different version than the file on disk, and only the file on disk was "
-                           "scanned. Nothing moved. Run git add on it, or git restore on it, and try again." % rel)
+        raise gate.Refused("the scan found %d secret(s). Nothing moved. Take the secret out of the file, or keep the "
+                           "file out." % len(secrets))
+    contacts = sum(1 for f in findings if f["kind"] == "pii")
+    link_only = any(f["kind"] == "filetype" and f["value"] == "link only" for f in findings)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if tracked:
-        move_tracked(root, rel, dest_rel)
-    else:
-        move_untracked(full, dest)
+    move_untracked(full, dest)
+    if contacts:
+        print("raw-add: note: the scan sees %d contact detail(s) in this file. It stays on this machine. None of "
+              "them may reach a page." % contacts, file=sys.stderr)
+    if link_only:
+        print("raw-add: note: this is a file people usually work on elsewhere. It stays on this machine. A page gets "
+              "a summary and, when known, the link.", file=sys.stderr)
     if unread:
         print("raw-add: note: the scan could not read %s (binary). Look through it yourself." % dest_rel, file=sys.stderr)
     return dest_rel

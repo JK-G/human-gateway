@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test-raw-add.sh - hg-tool raw-add, the one writer of vault/raw/: where a file lands, what is refused, that
-# nothing is overwritten, and that the template and the skills still send every source through it.
+# nothing is overwritten, that raw files stay out of git, and that the template and the skills still send every
+# source through it.
 # Self-contained: fictional data in a temp repo. Every fake value is assembled at run time.
 # Exit nonzero on failure.
 
@@ -64,14 +65,30 @@ has "$err" "could not read" && ok "and noted on stderr" || bad "and noted on std
 after="$($PY -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$W/$out")"
 t '[ "$before" = "$after" ]' "a binary file arrives byte for byte"
 
-# --- tracked files keep their history ---------------------------------------------------------
+# --- raw files stay out of git -----------------------------------------------------------------
 new vault/inbox/tracked.md 'tracked note'
-git -C "$W" add vault/inbox/tracked.md; git -C "$W" commit -q -m tracked
-out="$(add vault/inbox/tracked.md tracked 2>/dev/null)"; rc=$?
-t '[ $rc -eq 0 ] && [ -f "$W/$out" ] && [ ! -e "$W/vault/inbox/tracked.md" ]' "a tracked file moves" "rc=$rc out=$out"
-status="$(git -C "$W" status --porcelain -- vault/inbox/tracked.md "$RAW/meetings/2026-01-15-tracked.md")"
-has "$status" "R  vault/inbox/tracked.md -> $RAW/meetings/2026-01-15-tracked.md" && ok "git records it as a rename" || bad "git records it as a rename" "$status"
-git -C "$W" commit -q -m moved
+git -C "$W" add -f vault/inbox/tracked.md; git -C "$W" commit -q -m tracked
+out="$(add vault/inbox/tracked.md tracked 2>&1)"; rc=$?
+{ [ $rc -eq 1 ] && [ -f "$W/vault/inbox/tracked.md" ] && [ ! -e "$W/$RAW/meetings/2026-01-15-tracked.md" ]; } && ok "refused: a tracked source" || bad "refused: a tracked source (rc=$rc)" "$out"
+has "$out" "is tracked by git" && has "$out" "git rm --cached" && ok "the refusal names git rm --cached" || bad "the refusal names git rm --cached" "$out"
+git -C "$W" rm -q --cached vault/inbox/tracked.md; git -C "$W" commit -q -m untracked
+out="$(add vault/inbox/tracked.md tracked 2>&1)"; rc=$?
+t '[ $rc -eq 0 ] && [ -f "$W/$out" ]' "once out of git it moves" "rc=$rc $out"
+status="$(git -C "$W" status --porcelain --untracked-files=all)"
+t '[ -z "$(printf "%s" "$status" | grep "vault/raw/")" ]' "the moved file is not listed by git status" "$status"
+out="$(git -C "$W" add "$RAW/meetings/2026-01-15-tracked.md" 2>&1)"; rc=$?
+t '[ $rc -ne 0 ] && [ -z "$(git -C "$W" ls-files vault/raw/acme-notes)" ]' "git add of the destination fails without --force" "rc=$rc $out"
+
+cp "$W/.gitignore" "$TMP/gitignore.bak"
+grep -v '^vault/raw/\*$\|^!vault/raw/README.md$' "$TMP/gitignore.bak" > "$W/.gitignore"
+new intake/unignored.md 'notes'
+out="$(add intake/unignored.md unignored 2>&1)"; rc=$?
+{ [ $rc -eq 1 ] && has "$out" "is not kept out of git in this folder" && has "$out" "/hg:setup"; } && ok "refused: the destination is not ignored by git" || bad "refused: the destination is not ignored by git (rc=$rc)" "$out"
+t '[ -f "$W/intake/unignored.md" ] && [ ! -e "$W/$RAW/meetings/2026-01-15-unignored.md" ]' "nothing moved"
+cp "$TMP/gitignore.bak" "$W/.gitignore"
+P="$TMP/no-repo"; mkdir -p "$P/.claude" "$P/intake"; cp "$W/.claude/hg.json" "$P/.claude/hg.json"; printf 'x\n' > "$P/intake/a.md"
+out="$(CLAUDE_PROJECT_DIR="$P" hg raw-add intake/a.md --project acme-notes --kind meetings --date 2026-01-15 --slug a 2>&1)"; rc=$?
+t '[ $rc -eq 1 ] && [ -f "$P/intake/a.md" ]' "refused: a folder that is not a repository" "rc=$rc $out"
 
 # --- path shapes -------------------------------------------------------------------------------
 abs="$W/intake/abs.md"; new intake/abs.md abs
@@ -205,101 +222,48 @@ stopped() {  # stopped <label> <file> <kind> <the value that must not be printed
 printf 'first\ntoken %s\n' "$gh" > "$W/intake/secret.md"
 stopped "a secret" intake/secret.md secret "$gh"
 printf 'first\nwrite to %s\n' "$mail" > "$W/intake/contact.md"
-stopped "personal data" intake/contact.md pii "$mail"
+out="$(add intake/contact.md contact 2>"$TMP/err")"; rc=$?; err="$(cat "$TMP/err")"
+t '[ $rc -eq 0 ] && [ -f "$W/$out" ] && [ ! -e "$W/intake/contact.md" ]' "contact data is noted on stderr and the file moves" "rc=$rc $out $err"
+{ has "$err" "contact detail(s) in this file" && has "$err" "None of them may reach a page"; } && ok "the note says the data stays here" || bad "the note says the data stays here" "$err"
+{ has "$out$err" "$mail" || has "$out$err" "ala.nowak" || has "$out$err" "***"; } && bad "the note prints no value" "$out $err" || ok "the note prints no value"
 printf 'x' > "$W/intake/budget.xlsx"
-stopped "a file that stays a link" intake/budget.xlsx filetype ""
-printf 'first\ntoken %s\n' "$gh" > "$W/vault/inbox/tracked-secret.md"
-git -C "$W" add vault/inbox/tracked-secret.md
-out="$(add vault/inbox/tracked-secret.md scanned 2>&1)"; rc=$?
-t '[ $rc -eq 1 ] && [ -f "$W/vault/inbox/tracked-secret.md" ]' "a tracked file with a finding stays where it is" "rc=$rc $out"
-git -C "$W" rm -q --cached vault/inbox/tracked-secret.md; rm "$W/vault/inbox/tracked-secret.md"
-jedit "$W/.claude/hg.json" "$TMP/conf.allow" 'd["scan"]["allow"]["domains"]=["acme-notes.test"]'
-cp "$W/.claude/hg.json" "$TMP/conf.base"; cp "$TMP/conf.allow" "$W/.claude/hg.json"
-out="$(add intake/contact.md allowed 2>&1)"; rc=$?
-t '[ $rc -eq 0 ]' "the scan uses the repo's own allowlist" "rc=$rc $out"
-cp "$TMP/conf.base" "$W/.claude/hg.json"
-mkdir -p "$W/intake/gates" "$W/intake/nested/.git" "$W/intake/nested/gates"
-printf 'accountable: %s\n' "$mail" > "$W/intake/gates/leak.md"
-stopped "an address in a folder that is only named gates" intake/gates/leak.md pii "$mail"
-printf 'accountable: %s\n' "$mail" > "$W/intake/nested/gates/leak.md"
-stopped "no gate exemption, even at the top of a nested repository" intake/nested/gates/leak.md pii "$mail"
-rm -rf "$W/intake/nested"
-$PY -c 'import sys; open(sys.argv[1],"wb").write(("write to "+sys.argv[2]+"\n").encode("utf-32"))' "$W/intake/u32.md" "$mail"
-stopped "UTF-32 text" intake/u32.md pii "$mail"
-tsv_phone="601 234"" 567"
-printf 'Ala\t%s\tEUR\t1200\n' "$tsv_phone" > "$W/intake/people.tsv"
-stopped "a phone column beside a currency column" intake/people.tsv pii "$tsv_phone"
-nine="601""234""567"
-printf 'NIP firmy, tel. kontaktowy %s\n' "$nine" > "$W/intake/label.md"
-stopped "a phone number after a company label" intake/label.md pii "$nine"
+out="$(add intake/budget.xlsx budget 2>"$TMP/err")"; rc=$?; err="$(cat "$TMP/err")"
+t '[ $rc -eq 0 ] && [ "$out" = "$RAW/meetings/2026-01-15-budget.xlsx" ]' "a link-only file moves, with a note" "rc=$rc $out $err"
+has "$err" "people usually work on elsewhere" && ok "the link-only note is printed" || bad "the link-only note is printed" "$err"
+out="$(add intake/secret.md scanned 2>&1)"
+{ has "$out" "the scan found 1 secret(s). Nothing moved." && ! has "$out" "$gh"; } && ok "a secret still stops the move, masked" || bad "a secret still stops the move, masked" "$out"
+printf 'x\n' > "$W/intake/cert.pem"
+out="$(add intake/cert.pem scanned 2>&1)"; rc=$?
+{ [ $rc -eq 1 ] && [ -f "$W/intake/cert.pem" ] && has "$out" "secret file"; } && ok "a .pem file still stops the move" || bad "a .pem file still stops the move (rc=$rc)" "$out"
+rm -f "$W/intake/cert.pem"
+$PY -c 'import sys; open(sys.argv[1],"wb").write(("token "+sys.argv[2]+"\n").encode("utf-32"))' "$W/intake/u32.md" "$gh"
+stopped "a secret in UTF-32 text" intake/u32.md secret "$gh"
 new intake/noconf.md 'x'
 mv "$W/.claude/hg.json" "$TMP/conf.gone"
 out="$(add intake/noconf.md noconf 2>&1)"; rc=$?
 t '[ $rc -eq 1 ] && [ -f "$W/intake/noconf.md" ]' "no workspace: refused" "rc=$rc $out"
 mv "$TMP/conf.gone" "$W/.claude/hg.json"
 
-# --- what git mv carries is what was scanned -----------------------------------------------------
-stale() {  # stale <label> <file>: refused, unmoved, and no value in the message
-  local out rc; out="$(add "$2" stale 2>&1)"; rc=$?
-  { [ $rc -eq 1 ] && [ -f "$W/$2" ] && [ ! -e "$W/$RAW/meetings/2026-01-15-stale.md" ] && ! has "$out" "$gh"; } && ok "refused: $1" || bad "refused: $1 (rc=$rc)" "$out"
-}
-ci() { git -C "$W" add "$1"; git -C "$W" commit -q -m "$1"; }  # ci <file>
-in_index() { git -C "$W" show ":$1"; }
-
-new vault/inbox/staged.md 'clean'; ci vault/inbox/staged.md
-printf 'token %s\n' "$gh" > "$W/vault/inbox/staged.md"; git -C "$W" add vault/inbox/staged.md; new vault/inbox/staged.md 'clean'
-stale "a secret that is staged but gone from the file on disk" vault/inbox/staged.md
-has "$(in_index vault/inbox/staged.md)" "$gh" && ok "the index was not touched" || bad "the index was not touched"
-git -C "$W" add vault/inbox/staged.md
-out="$(add vault/inbox/staged.md staged-clean 2>&1)"; rc=$?
-t '[ $rc -eq 0 ] && ! has "$(in_index "$RAW/meetings/2026-01-15-staged-clean.md")" "$gh"' "once staged again it moves, and the secret stays behind" "rc=$rc $out"
-git -C "$W" commit -q -m staged-clean
-
-printf 'token %s\n' "$gh" > "$W/vault/inbox/staged-new.md"; git -C "$W" add vault/inbox/staged-new.md; new vault/inbox/staged-new.md 'clean'
-stale "the same for a file that was never committed" vault/inbox/staged-new.md
-git -C "$W" rm -q --cached -f vault/inbox/staged-new.md; rm "$W/vault/inbox/staged-new.md"
-
-new vault/inbox/edited.md 'first version'; ci vault/inbox/edited.md
-new vault/inbox/edited.md 'second version'
-stale "a clean edit that is not staged" vault/inbox/edited.md
-git -C "$W" add vault/inbox/edited.md
-out="$(add vault/inbox/edited.md edited 2>&1)"; rc=$?
-t '[ $rc -eq 0 ] && [ "$(in_index "$out")" = "second version" ]' "once staged, what is committed is what was scanned" "rc=$rc $out"
-git -C "$W" commit -q -m edited
-
-new vault/inbox/flagged.md 'first version'; ci vault/inbox/flagged.md
-git -C "$W" update-index --assume-unchanged vault/inbox/flagged.md
-new vault/inbox/flagged.md 'second version'
-stale "an edit hidden with assume-unchanged" vault/inbox/flagged.md
-git -C "$W" update-index --no-assume-unchanged vault/inbox/flagged.md
-git -C "$W" checkout -q -- vault/inbox/flagged.md
-
-git -C "$W" config core.autocrlf true
-printf 'one\ntwo\n' > "$W/vault/inbox/crlf.md"; ci vault/inbox/crlf.md 2>/dev/null
-printf 'one\r\ntwo\r\n' > "$W/vault/inbox/crlf.md"
-out="$(add vault/inbox/crlf.md crlf 2>&1)"; rc=$?
-t '[ $rc -eq 0 ]' "line endings alone do not count as a different version" "rc=$rc $out"
-git -C "$W" commit -q -m crlf 2>/dev/null
-git -C "$W" config core.autocrlf false
-
 # --- never overwrites ---------------------------------------------------------------------------
+mkdir -p "$W/$RAW/meetings"
 new "$RAW/meetings/2026-02-01-taken.md" 'the original'
-git -C "$W" add "$RAW/meetings/2026-02-01-taken.md"; git -C "$W" commit -q -m taken
 taken_case() {  # taken_case <label> <file>
   local out rc; out="$(ra "$2" --project acme-notes --kind meetings --date 2026-02-01 --slug taken 2>&1)"; rc=$?
   { [ $rc -eq 1 ] && [ -f "$W/$2" ] && [ "$(cat "$W/$RAW/meetings/2026-02-01-taken.md")" = "the original" ]; } && ok "never overwrites: $1" || bad "never overwrites: $1 (rc=$rc)" "$out"
 }
 new intake/again.md 'a newcomer'
 taken_case "an untracked file" intake/again.md
-new vault/inbox/again.md 'a tracked newcomer'
-git -C "$W" add vault/inbox/again.md; git -C "$W" commit -q -m again
-taken_case "a tracked file" vault/inbox/again.md
+new vault/inbox/again.md 'an inbox newcomer'
+taken_case "a file from the inbox" vault/inbox/again.md
 new intake/upper.TXT 'other suffix'
 taken_case "a name that only becomes equal after the suffix changes" intake/upper.TXT
-rm "$W/$RAW/meetings/2026-02-01-taken.md"
-out="$(ra intake/again.md --project acme-notes --kind meetings --date 2026-02-01 --slug taken 2>&1)"; rc=$?
-t '[ $rc -eq 1 ] && [ -f "$W/intake/again.md" ] && [ ! -e "$W/$RAW/meetings/2026-02-01-taken.md" ]' "never overwrites: a name git still holds" "rc=$rc $out"
-git -C "$W" checkout -q -- "$RAW/meetings/2026-02-01-taken.md"
+if MSYS=winsymlinks:nativestrict ln -s "$W/intake/nowhere.md" "$W/$RAW/meetings/2026-02-02-dangling.md" 2>/dev/null && [ -L "$W/$RAW/meetings/2026-02-02-dangling.md" ]; then
+  out="$(ra intake/again.md --project acme-notes --kind meetings --date 2026-02-02 --slug dangling 2>&1)"; rc=$?
+  t '[ $rc -eq 1 ] && [ -f "$W/intake/again.md" ]' "never overwrites: a dangling link at the name" "rc=$rc $out"
+  rm -f "$W/$RAW/meetings/2026-02-02-dangling.md"
+else
+  echo "n/a  - this system cannot make symbolic links here, the dangling link case not run"
+fi
 
 # Exclusive create is what stops a second writer between the check and the move.
 out="$($PY - "$PLUGIN/tools" "$W" <<'PY'
@@ -334,6 +298,11 @@ out="$(grep -nE 'mkdir|\bmv\b' "$PLUGIN"/skills/*/SKILL.md)"
 t '[ -z "$out" ]' "no skill tells the agent to mkdir or mv" "$out"
 out="$(grep -rnE '\bgit mv\b' "$PLUGIN/templates/workspace" "$PLUGIN/skills")"
 t '[ -z "$out" ]' "no template or skill sends a file through git mv" "$out"
+out="$(grep -nE 'move_tracked|staged_as_on_disk|"mv"' "$PLUGIN/tools/raw_add.py")"
+t '[ -z "$out" ]' "raw-add has no tracked route left" "$out"
+for f in vault/raw/acme-notes/meetings/x.md vault/inbox/n.md; do
+  git -C "$W" check-ignore -q "$f" && ok "the template ignores $f" || bad "the template ignores $f"
+done
 
 SKILL="$PLUGIN/skills/import-source/SKILL.md"
 grep -qF 'hg-tool raw-add <file> --project <p> --kind <k> --date <captured> --slug <slug>' "$SKILL" && ok "import-source runs raw-add" || bad "import-source runs raw-add"

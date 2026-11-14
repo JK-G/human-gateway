@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# test-notify.sh - the Slack message: which gates started to wait in a push, the morning list, the fixed
-# templates and their cleaning, sending and the secret, the five CI copies, hg-notify.yml and notify status.
+# test-notify.sh - the messenger: which gates started to wait in a push, the morning list, the fixed templates
+# and their cleaning per channel (Slack, Teams, a generic webhook), sending and the secret, the five CI copies,
+# hg-notify.yml and notify status.
 # Self-contained: fictional data in temp repos. No test touches the network: sending goes through a stub
 # opener or a server on 127.0.0.1, every ci run that holds a webhook-shaped secret has a dead local proxy as
 # a safety net, and gh is always a local stub (HG_GH). A webhook-shaped string is built from pieces at run
@@ -19,7 +20,7 @@ t()    { if eval "$1"; then ok "$2"; else bad "$2" "${3:-}"; fi; }
 has()  { printf '%s' "$1" | grep -qF -- "$2"; }
 
 export PYTHONDONTWRITEBYTECODE=1   # no __pycache__ next to the copies in .github/hg/
-unset HG_SLACK_WEBHOOK_URL HG_EVENT HG_MODE HG_BEFORE HG_AFTER KIT_TODAY
+unset HG_NOTIFY_WEBHOOK_URL HG_EVENT HG_MODE HG_BEFORE HG_AFTER KIT_TODAY
 ALL="$TMP/all-output.log"; : > "$ALL"   # every output of the sending cases, checked for the address at the end
 CANARY="canary$$x$RANDOM"
 HOOK="https://hooks.""slack.com/services/""TQ0A/BQ0B/""$CANARY"   # webhook-shaped, built from pieces
@@ -36,7 +37,7 @@ def run(conclusion, day, status="completed", event="push"):
 if args[:2] == ["secret", "list"]:
     if "nosign" in mode:
         sys.exit(1)
-    print(json.dumps([{"name": "HG_SLACK_WEBHOOK_URL" if "secret" in mode else "OTHER_NAME"}]))
+    print(json.dumps([{"name": "HG_NOTIFY_WEBHOOK_URL" if "secret" in mode else "OTHER_NAME"}]))
 elif args[:2] == ["run", "list"]:
     runs = {"green": [run("success", 9, event="schedule"), run("failure", 8)],
             "failed": [run("failure", 9), run("success", 8)],
@@ -49,22 +50,25 @@ PY
 export HG_GH="$PY $TMP/gh.py"   # never the real gh
 
 cat > "$TMP/fake.py" <<'PY'
-import json, sys
+import json, os, sys
 sys.path.insert(0, sys.argv[1])
 import notify
 sys.stdout.reconfigure(encoding="utf-8", newline="\n")
 kind, rest = sys.argv[2], sys.argv[3:]
 polish, data = rest[0] == "pl" if len(rest) == 2 else False, json.loads(rest[-1])
+ch = notify.CHANNELS[os.environ.get("CH", "slack")]   # CH=teams|webhook picks another channel
 if kind == "gate":
-    print(notify.gate_message(data, polish))
+    print(notify.gate_message(data, polish, ch))
 elif kind == "digest":
-    print(notify.digest_message(data, polish) or "")
+    print(notify.digest_message(data, polish, ch) or "")
 elif kind == "push":
-    print("\n---\n".join(notify.push_messages(data, polish)))
+    print("\n---\n".join(notify.push_messages(data, polish, ch)))
 elif kind == "clean":
-    print(notify.clean(data))
+    print(notify.clean(data, ch))
 elif kind == "len":
-    print(len(notify.clean(data)))
+    print(len(notify.clean(data, ch)))
+elif kind == "payload":
+    print(ch["payload"](data))
 elif kind == "address":
     print(notify.address(data, polish))
 elif kind == "test":
@@ -81,10 +85,16 @@ for line in sys.stdin:
     if line.strip():
         print(json.loads(line)["text"])' | tr -d '\r'; }
 count() { printf '%s\n' "$1" | grep -c '^{' ; }
+messenger() {  # messenger <workspace> <type>: nodes.messenger.type in its .claude/hg.json, as hg-tool nodes declare writes it
+  $PY -c 'import json,sys
+p=sys.argv[1]; d=json.load(open(p,encoding="utf-8")); d.setdefault("nodes",{})["messenger"]={"type":sys.argv[2]}
+json.dump(d,open(p,"w",encoding="utf-8",newline=""),indent=2,ensure_ascii=False)' "$1/.claude/hg.json" "$2"
+}
 
 # ===== which gates started to wait ============================================================
 W="$TMP/dept"
 hg setup --root "$W" --name Dept --language pl --project acme-notes >/dev/null
+messenger "$W" slack
 git -C "$W" config user.email reviewer@example.com; git -C "$W" config user.name Reviewer; git -C "$W" config core.autocrlf false
 B=vault/projects/acme-notes/brief.md
 printf '# Brief\n' > "$W/$B"
@@ -222,6 +232,24 @@ M="$TMP/morning"
 hg setup --root "$M" --name Morning --language pl --project acme-notes >/dev/null
 git -C "$M" config user.email reviewer@example.com; git -C "$M" config user.name Reviewer; git -C "$M" config core.autocrlf false
 printf '# Brief\n' > "$M/$B"
+
+# no messenger declared yet: nothing is sent, and a preview asks which channel to show
+nm() { (cd "$M" && CLAUDE_PROJECT_DIR="$M" HTTPS_PROXY="$DEAD_PROXY" HTTP_PROXY="$DEAD_PROXY" "$@") >"$TMP/out" 2>"$TMP/err"; RC=$?
+  OUT="$(tr -d '\r' < "$TMP/out")"; ERR="$(cat "$TMP/err")"; printf '%s\n%s\n' "$OUT" "$ERR" >> "$ALL"; }
+nm env HG_NOTIFY_WEBHOOK_URL="$HOOK" KIT_TODAY=2026-11-10 HG_EVENT=schedule $PY "$NOTIFY" ci
+{ [ $RC -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "notify: no messenger is declared in .claude/hg.json, so nothing is sent." && ! has "$ERR" "delivered"; } \
+  && ok "with no messenger declared ci sends nothing and exits 0" || bad "with no messenger declared ci sends nothing and exits 0 (rc=$RC)" "$OUT $ERR"
+nm env HG_NOTIFY_WEBHOOK_URL="$HOOK" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
+{ [ $RC -eq 1 ] && [ -z "$OUT" ] && has "$ERR" "no messenger is declared" && ! has "$OUT$ERR" "$CANARY"; } \
+  && ok "with no messenger declared ci sends nothing and exits 1 in test mode" || bad "with no messenger declared ci sends nothing and exits 1 in test mode (rc=$RC)" "$OUT $ERR"
+nm bash "$HG_TOOL" notify test
+{ [ $RC -eq 1 ] && [ -z "$OUT" ] && [ "$ERR" = "notify: no messenger is declared in .claude/hg.json (nodes.messenger.type). Add --as slack, teams or webhook to preview one." ]; } \
+  && ok "a preview without a type asks for --as" || bad "a preview without a type asks for --as (rc=$RC)" "$OUT $ERR"
+nm bash "$HG_TOOL" notify test --as slack
+t '[ $RC -eq 0 ] && [ "$(count "$OUT")" = 1 ]' "--as previews a channel that is not declared" "$OUT $ERR"
+nm bash "$HG_TOOL" notify test --as discord
+t '[ $RC -eq 2 ]' "--as with an unknown channel is a usage error" "rc=$RC $ERR"
+messenger "$M" slack
 mc() { git -C "$M" add -A && git -C "$M" commit -q -m "$1"; }
 mg() { (cd "$M" && CLAUDE_PROJECT_DIR="$M" hg gate "$@"); }
 mmk() { local id="$1" who="$2"; shift 2; mg new "$id" --title "T $id" --project acme-notes --accountable "$who" --input "$B" "$@" >/dev/null; }
@@ -297,7 +325,7 @@ has "$pl_unread" 'Powód: zapis zatwierdzeń nie daje się odczytać.' || { ok_p
 for needle in 'Po ostatniej zmianie czekają na zatwierdzenie (6):' '- „T a1” (a1), otwarta ponownie. Odpowiada: anna@example.com.' \
   '- „T a2” (a2), szkic. Odpowiada: anna@example.com.' 'Otwórz Claude w folderze działu i wpisz /hg:gate.'; do
   has "$pl_list" "$needle" || { ok_pl=0; bad "Polish template: $needle" "$pl_list"; }; done
-has "$pl_test" 'To jest wiadomość próbna z hg. Połączenie ze Slackiem działa.' || { ok_pl=0; bad "Polish template: test" "$pl_test"; }
+has "$pl_test" 'To jest wiadomość próbna z hg. Połączenie z kanałem działu działa.' || { ok_pl=0; bad "Polish template: test" "$pl_test"; }
 has "$(fake address pl '"nobody"')" 'nie podano' || { ok_pl=0; bad "Polish template: not given"; }
 [ $ok_pl = 1 ] && ok "the Polish templates, word for word"
 
@@ -314,7 +342,7 @@ for needle in 'After the last change these wait for approval (6):' '- "T a1" (a1
   has "$en_list" "$needle" || { ok_en=0; bad "English template: $needle" "$en_list"; }; done
 for needle in 'Waiting for approval (2):' 'Open Claude in the department folder and write: what do I have today.'; do
   has "$en_digest" "$needle" || { ok_en=0; bad "English template: $needle" "$en_digest"; }; done
-has "$(fake test en '{}')" 'This is a test message from hg. The connection to Slack works.' || { ok_en=0; bad "English template: test"; }
+has "$(fake test en '{}')" "This is a test message from hg. The connection to the department's channel works." || { ok_en=0; bad "English template: test"; }
 has "$(fake address en '"nobody"')" 'not given' || { ok_en=0; bad "English template: not given"; }
 [ $ok_en = 1 ] && ok "the English templates, word for word"
 
@@ -322,6 +350,50 @@ payload="$(cd "$W" && CLAUDE_PROJECT_DIR="$W" hg notify test 2>/dev/null | tr -d
 printf '%s' "$payload" | jtrue 'list(d) == ["text"]' && ok "the payload has the one key text" || bad "the payload has the one key text" "$payload"
 printf '%s' "$payload" | $PY -c 'import sys; b=sys.stdin.buffer.read(); sys.exit(0 if b and all(c < 128 for c in b) else 1)' \
   && ok "the payload is plain ASCII" || bad "the payload is plain ASCII" "$payload"
+
+# ===== the three channels =====================================================================
+asch() { (cd "$W" && CLAUDE_PROJECT_DIR="$W" hg notify test --as "$1" 2>/dev/null | tr -d '\r'); }
+teams="$(asch teams)"
+printf '%s' "$teams" | jtrue '(d == {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
+  "content": {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard", "version": "1.2",
+  "body": [{"type": "TextBlock", "text": "To jest wiadomość próbna z hg. Połączenie z kanałem działu działa.", "wrap": True}]}}]}
+  and list(d) == ["type", "attachments"] and list(d["attachments"][0]) == ["contentType", "contentUrl", "content"]
+  and list(d["attachments"][0]["content"]) == ["$schema", "type", "version", "body"])' \
+  && [ "$(printf '%s\n' "$teams" | grep -c .)" = 1 ] \
+  && ok "the Teams payload is the message envelope with one adaptive card" || bad "the Teams payload is the message envelope with one adaptive card" "$teams"
+lines="$(CH=teams fake payload '"Czeka na zatwierdzenie (2):\n- a\n- b"')"
+printf '%s' "$lines" | jtrue '([(b["type"], b["text"], b["wrap"], b.get("spacing")) for b in d["attachments"][0]["content"]["body"]]
+  == [("TextBlock", "Czeka na zatwierdzenie (2):", True, None), ("TextBlock", "- a", True, "None"), ("TextBlock", "- b", True, "None")])' \
+  && ok "one TextBlock per line" || bad "one TextBlock per line" "$lines"
+printf '%s' "$teams" | $PY -c 'import sys; b=sys.stdin.buffer.read(); sys.exit(0 if b and all(c < 128 for c in b) else 1)' \
+  && ok "the Teams payload is plain ASCII" || bad "the Teams payload is plain ASCII" "$teams"
+generic="$(asch webhook)"
+printf '%s' "$generic" | jtrue 'list(d) == ["text"] and d["text"].startswith("To jest wiadomo")' \
+  && ok "the generic payload has the one key text" || bad "the generic payload has the one key text" "$generic"
+slack="$(asch slack)"
+t '[ "$slack" = "$payload" ]' "--as slack gives the payload of the declared slack channel" "$slack / $payload"
+c="$(CH=teams fake clean '"[click](x) a\\b [[c]]"')"
+t '! printf "%s" "$c" | grep -q "[][\\]"' "a Teams title loses [ ] and the backslash" "$c"
+c="$(CH=webhook fake clean '"[click](x) a\\b *d*"')"
+t '! printf "%s" "$c" | grep -q "[][\\*]"' "a generic title loses the Teams set" "$c"
+c="$(CH=teams fake clean '"R&D"')"
+t '[ "$c" = "R&D" ]' "a Teams title keeps an ampersand unescaped" "$c"
+c="$(fake clean '"R&D"')"
+t '[ "$c" = "R&amp;D" ]' "a Slack title still escapes it" "$c"
+c="$(CH=teams fake clean '"'"$(printf 'R&D%.0s' $(seq 1 30))"'"')"
+n="$(CH=teams fake len '"'"$(printf 'R&D%.0s' $(seq 1 30))"'"')"
+t '[ "$n" = 80 ] && [ "${c%…}" != "$c" ]' "a long Teams title is cut to 80" "$n $c"
+same=1
+for chn in slack teams webhook; do
+  out="$(cd "$M" && CLAUDE_PROJECT_DIR="$M" KIT_TODAY=2026-11-10 hg notify digest --force --as "$chn" 2>/dev/null | tr -d '\r')"
+  body="$(printf '%s' "$out" | $PY -c 'import json,sys
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+d=json.loads(sys.stdin.read())
+print("\n".join(b["text"] for b in d["attachments"][0]["content"]["body"]) if "attachments" in d else d["text"])' | tr -d '\r')"
+  eval "body_$chn=\$body"
+done
+{ [ -n "$body_slack" ] && [ "$body_slack" = "$body_teams" ] && [ "$body_slack" = "$body_webhook" ] && has "$body_slack" 'Czeka na zatwierdzenie'; } \
+  && ok "the same message text reaches all three channels" || bad "the same message text reaches all three channels" "$body_slack / $body_teams / $body_webhook"
 
 c="$(fake clean '"Plan <!channel> now"')"
 t '! has "$c" "<!" && ! has "$c" "<" && ! has "$c" ">"' "a title with <!channel> cannot notify the channel" "$c"
@@ -375,18 +447,19 @@ class Stub:
         if a == "net":
             raise urllib.error.URLError("no route to " + req.full_url)
         raise urllib.error.HTTPError(req.full_url, a, "error at " + req.full_url, {}, io.BytesIO(req.full_url.encode()))
-payload = notify.CHANNEL["payload"]("x")
+SL = notify.CHANNELS["slack"]
+payload = SL["payload"]("x")
 nap = lambda s: sleeps.append(s)
 if mode == "http":
-    rc = notify.deliver([payload], url, Stub([403]), nap); print("rc=%d calls=%d" % (rc, len(calls)))
+    rc = notify.deliver([payload], url, SL, Stub([403]), nap); print("rc=%d calls=%d" % (rc, len(calls)))
 elif mode == "net":
-    rc = notify.deliver([payload], url, Stub(["net", "net"]), nap); print("rc=%d calls=%d sleeps=%s" % (rc, len(calls), sleeps))
+    rc = notify.deliver([payload], url, SL, Stub(["net", "net"]), nap); print("rc=%d calls=%d sleeps=%s" % (rc, len(calls), sleeps))
 elif mode == "retry":
-    rc = notify.deliver([payload, payload], url, Stub([500, 200, 200]), nap); print("rc=%d calls=%d sleeps=%s" % (rc, len(calls), sleeps))
+    rc = notify.deliver([payload, payload], url, SL, Stub([500, 200, 200]), nap); print("rc=%d calls=%d sleeps=%s" % (rc, len(calls), sleeps))
 elif mode == "strip":
     os.environ[notify.SECRET_ENV] = url + "\n"
     got = notify.take_secret()
-    rc = notify.deliver([payload], got, Stub([200]), nap)
+    rc = notify.deliver([payload], got, SL, Stub([200]), nap)
     print("rc=%d calls=%d same=%s left=%s" % (rc, len(calls), calls == [url], notify.SECRET_ENV in os.environ))
 elif mode == "redirect":
     hits = []
@@ -405,6 +478,8 @@ elif mode == "redirect":
     problem = notify.send(payload, "http://127.0.0.1:%d/start" % server.server_port, sleep=nap)
     server.shutdown()
     print("problem=%s hits=%s" % (problem, hits))
+elif mode == "shape":
+    rc = notify.deliver([payload], url, notify.CHANNELS[sys.argv[4]], Stub([200]), nap); print("rc=%d calls=%d" % (rc, len(calls)))
 elif mode == "crash":
     os.environ[notify.SECRET_ENV] = url
     os.environ.update({"HG_EVENT": "workflow_dispatch", "HG_MODE": "digest"})
@@ -420,32 +495,32 @@ ci "$M" env KIT_TODAY=2026-11-10 HG_EVENT=workflow_dispatch HG_MODE=digest $PY "
 { [ $RC -eq 0 ] && has "$ERR" "is not set, so 1 message(s) were skipped"; } && ok "ci without the secret exits 0 and says how many messages were skipped" || bad "ci without the secret exits 0 and says how many messages were skipped (rc=$RC)" "$ERR"
 ci "$M" env HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
 t '[ $RC -eq 1 ]' "ci in test mode without the secret exits 1" "rc=$RC $ERR"
-ci "$M" env HG_SLACK_WEBHOOK_URL="$HOOK" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci --dry-run
+ci "$M" env HG_NOTIFY_WEBHOOK_URL="$HOOK" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci --dry-run
 { [ $RC -eq 0 ] && [ "$(count "$OUT")" = 1 ] && has "$(printf '%s\n' "$OUT" | texts)" 'To jest wiadomość próbna z hg.' \
   && ! has "$OUT$ERR" "$CANARY" && ! has "$ERR" "delivered"; } \
   && ok "ci --dry-run prints the payload and never sends or prints the secret" || bad "ci --dry-run prints the payload and never sends or prints the secret (rc=$RC)" "$OUT $ERR"
 
 MARK="$TMP/leaked"; RAN="$TMP/hook-ran"
-printf '#!/bin/sh\n: > "%s"\n[ -n "${HG_SLACK_WEBHOOK_URL:-}" ] && : > "%s"\nexit 0\n' "$RAN" "$MARK" > "$W/.git/hooks/post-checkout"
+printf '#!/bin/sh\n: > "%s"\n[ -n "${HG_NOTIFY_WEBHOOK_URL:-}" ] && : > "%s"\nexit 0\n' "$RAN" "$MARK" > "$W/.git/hooks/post-checkout"
 chmod +x "$W/.git/hooks/post-checkout"
-(cd "$W" && HG_SLACK_WEBHOOK_URL="$HOOK" git worktree add -q --detach "$TMP/control" HEAD >/dev/null 2>&1)
+(cd "$W" && HG_NOTIFY_WEBHOOK_URL="$HOOK" git worktree add -q --detach "$TMP/control" HEAD >/dev/null 2>&1)
 control=no; [ -e "$MARK" ] && control=yes
 git -C "$W" worktree remove --force "$TMP/control"; rm -f "$MARK" "$RAN"
-ci "$W" env HG_SLACK_WEBHOOK_URL="$HOOK" HG_EVENT=push HG_BEFORE="$C0" HG_AFTER="$C1" $PY "$NOTIFY" ci --dry-run
+ci "$W" env HG_NOTIFY_WEBHOOK_URL="$HOOK" HG_EVENT=push HG_BEFORE="$C0" HG_AFTER="$C1" $PY "$NOTIFY" ci --dry-run
 { [ "$control" = yes ] && [ -e "$RAN" ] && [ ! -e "$MARK" ] && [ $RC -eq 0 ] && [ "$(count "$OUT")" = 1 ]; } \
   && ok "git child processes of ci do not get the secret" || bad "git child processes of ci do not get the secret (control=$control rc=$RC)" "$OUT $ERR"
 rm -f "$W/.git/hooks/post-checkout"
 
-ci "$M" env HG_SLACK_WEBHOOK_URL="https://example.com/hook/$CANARY" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
+ci "$M" env HG_NOTIFY_WEBHOOK_URL="https://example.com/hook/$CANARY" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
 { [ $RC -eq 1 ] && has "$ERR" "does not look like a Slack webhook address" && ! has "$OUT$ERR" "$CANARY"; } \
   && ok "a secret that is not a Slack address is refused and not printed" || bad "a secret that is not a Slack address is refused and not printed (rc=$RC)" "$ERR"
 sendpy strip "$HOOK"
 t '[ $RC -eq 0 ] && has "$OUT" "rc=0 calls=1 same=True left=False"' "a secret with a trailing line break is accepted after stripping" "$OUT $ERR"
-ci "$M" env HG_SLACK_WEBHOOK_URL="https://hooks.""slack.com/services/TQ0A B/$CANARY" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
+ci "$M" env HG_NOTIFY_WEBHOOK_URL="https://hooks.""slack.com/services/TQ0A B/$CANARY" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
 { [ $RC -eq 1 ] && has "$ERR" "Paste it again on GitHub" && ! has "$OUT$ERR" "$CANARY"; } \
   && ok "a secret with a space inside is refused, and the message says to paste it again" || bad "a secret with a space inside is refused, and the message says to paste it again (rc=$RC)" "$ERR"
 sendpy http "$HOOK"
-{ has "$OUT" "rc=1 calls=1" && has "$ERR" "Slack answered with HTTP 403" && ! has "$ERR" "error at"; } \
+{ has "$OUT" "rc=1 calls=1" && has "$ERR" "the channel answered with HTTP 403" && ! has "$ERR" "error at"; } \
   && ok "an HTTP error exits 1 and prints only the status number" || bad "an HTTP error exits 1 and prints only the status number" "$OUT $ERR"
 sendpy net "$HOOK"
 { has "$OUT" "rc=1 calls=2" && has "$ERR" "(URLError)" && ! has "$ERR" "no route"; } \
@@ -453,16 +528,36 @@ sendpy net "$HOOK"
 sendpy retry "$HOOK"
 t 'has "$OUT" "rc=0 calls=3 sleeps=[2, 1]"' "one retry after a 500, then success" "$OUT $ERR"
 sendpy redirect "$HOOK"
-t 'has "$OUT" "problem=Slack answered with HTTP 302 hits=['"'"'/start'"'"']"' "no redirect is followed" "$OUT $ERR"
+t 'has "$OUT" "problem=the channel answered with HTTP 302 hits=['"'"'/start'"'"']"' "no redirect is followed" "$OUT $ERR"
+FLOW="https://prod-12.westeurope.""logic.azure.com:443/workflows/""$CANARY""/triggers/manual/paths/invoke?api-version=1&sig=x"
+FLOW2="https://default1a.""environment.api.powerplatform.com/powerautomate/""$CANARY"
+sendpy shape "$FLOW" teams; r1="$OUT"
+sendpy shape "$FLOW2" teams; r2="$OUT"
+sendpy shape "$HOOK" teams; r3="$OUT"; e3="$ERR"
+{ [ "$r1" = "rc=0 calls=1" ] && [ "$r2" = "rc=0 calls=1" ] && [ "$r3" = "rc=1 calls=0" ] && has "$e3" "does not look like a Teams workflow address. Paste it again on GitHub" \
+  && ! has "$e3" "$CANARY"; } && ok "a Teams secret must be a workflow address" || bad "a Teams secret must be a workflow address" "$r1 / $r2 / $r3 $e3"
+sendpy shape "https://hooks.example.com/in/$CANARY" webhook; r1="$OUT"
+sendpy shape "http://hooks.example.com/in/$CANARY" webhook; r2="$OUT"; e2="$ERR"
+{ [ "$r1" = "rc=0 calls=1" ] && [ "$r2" = "rc=1 calls=0" ] && has "$e2" "does not look like an https address" && ! has "$e2" "$CANARY"; } \
+  && ok "a generic secret must be https" || bad "a generic secret must be https" "$r1 / $r2 $e2"
+T="$TMP/teams"
+hg setup --root "$T" --name Teams --language pl >/dev/null
+messenger "$T" teams
+ci "$T" env HG_NOTIFY_WEBHOOK_URL="$HOOK" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
+{ [ $RC -eq 1 ] && has "$ERR" "does not look like a Teams workflow address" && ! has "$OUT$ERR" "$CANARY" && ! has "$OUT$ERR" "hooks.slack"; } \
+  && ok "a Slack address under type teams is refused and not printed" || bad "a Slack address under type teams is refused and not printed (rc=$RC)" "$OUT $ERR"
+ci "$T" env HG_NOTIFY_WEBHOOK_URL="$HOOK" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci --dry-run
+printf '%s' "$OUT" | jtrue 'd["type"] == "message" and d["attachments"][0]["content"]["body"][0]["text"].startswith("To jest wiadomo")' \
+  && ok "ci sends the declared channel's payload" || bad "ci sends the declared channel's payload" "$OUT $ERR"
 sendpy crash "$HOOK"
 { has "$OUT" "rc=1" && has "$ERR" "unexpected error: RuntimeError" && ! has "$ERR" "leaked"; } \
   && ok "an unexpected error in ci prints only its class name and exits 1" || bad "an unexpected error in ci prints only its class name and exits 1" "$OUT $ERR"
-ci "$M" env HG_SLACK_WEBHOOK_URL="$HOOK" HG_EVENT=pull_request $PY "$NOTIFY" ci
+ci "$M" env HG_NOTIFY_WEBHOOK_URL="$HOOK" HG_EVENT=pull_request $PY "$NOTIFY" ci
 t '[ $RC -eq 2 ]' "an unknown HG_EVENT is a usage error" "rc=$RC $ERR"
 ci "$W" env HG_EVENT=push HG_BEFORE= HG_AFTER="$C1" $PY "$NOTIFY" ci
 t '[ $RC -eq 2 ]' "a push event with a missing SHA is a usage error" "rc=$RC $ERR"
 mkdir -p "$TMP/plain"
-ci "$TMP/plain" env HG_SLACK_WEBHOOK_URL="$HOOK" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
+ci "$TMP/plain" env HG_NOTIFY_WEBHOOK_URL="$HOOK" HG_EVENT=workflow_dispatch HG_MODE=test $PY "$NOTIFY" ci
 t '[ $RC -eq 0 ]' "outside a department repo ci exits 0" "rc=$RC $ERR"
 out="$(cd "$W" && CLAUDE_PROJECT_DIR="$W" hg notify ci 2>&1)"; rc=$?
 t '[ $rc -eq 2 ]' "hg-tool notify ci is refused: only CI posts" "$out"
@@ -483,8 +578,15 @@ done
 [ $ok_c = 1 ] && ok "each copy is identical to the plugin's file"
 printf '%s' "$out" | grep -q $'^created\t.github/workflows/hg-notify.yml$' && ok "setup adds hg-notify.yml" || bad "setup adds hg-notify.yml" "$out"
 cmp -s "$PLUGIN/templates/workspace/.github/workflows/hg-notify.yml" "$F/.github/workflows/hg-notify.yml" && ok "the workflow is the template's" || bad "the workflow is the template's"
-out="$(cd "$F" && env -u HG_TOOLS -u CLAUDE_PROJECT_DIR $PY .github/hg/notify.py digest 2>&1)"; rc=$?
+out="$(cd "$F" && env -u HG_TOOLS -u CLAUDE_PROJECT_DIR $PY .github/hg/notify.py digest --as slack 2>&1)"; rc=$?
 t '[ $rc -eq 0 ]' "the copy runs on its own, from a clone with no plugin" "$out"
+mv "$F/.github/workflows/hg-notify.yml" "$TMP/hg-notify.yml.away"
+line="$(hg doctor --root "$F" | tr -d '\r' | grep $'\tnotify\t')"
+want=$'OK\tnotify\tno messenger is declared, so no message is sent when a gate waits. /hg:setup --nodes plugs one in.'
+t '[ "$line" = "$want" ]' \
+  "with no messenger and no workflow doctor says plugging one in is open" "$line"
+mv "$TMP/hg-notify.yml.away" "$F/.github/workflows/hg-notify.yml"
+messenger "$F" slack
 git -C "$F" add -A
 out="$(cd "$F" && CLAUDE_PROJECT_DIR="$F" hg scan --git 2>&1)"; rc=$?
 t '[ $rc -eq 0 ]' "a fresh workspace still passes its own scan" "$out"
@@ -509,6 +611,16 @@ out="$(hg setup --root "$F" --refresh-ci)"
 { printf '%s' "$out" | grep -q $'^created\t.github/workflows/hg-notify.yml$' && printf '%s' "$out" | grep -q $'^skipped\t.github/workflows/hg-scan.yml$' \
   && grep -q '# mine' "$F/.github/workflows/hg-scan.yml"; } \
   && ok "--refresh-ci creates a missing workflow and never replaces an existing one" || bad "--refresh-ci creates a missing workflow and never replaces an existing one" "$out"
+cp "$F/.github/workflows/hg-notify.yml" "$TMP/wf.keep"
+sed "s/HG_NOTIFY_WEBHOOK_URL/HG_""SLACK_WEBHOOK_URL/g; s/30 7 \\* \\* \\*/30 6 * * */" "$TMP/wf.keep" > "$F/.github/workflows/hg-notify.yml"
+line="$(dstat)"
+t 'has "$line" "WARN" && has "$line" "hg-notify.yml"' "doctor warns when the workflow differs from the plugin's (an older one passes another secret)" "$line"
+out="$(hg setup --root "$F" --refresh-ci)"; rc=$?
+{ [ $rc -eq 0 ] && printf '%s' "$out" | grep -q $'^updated\t.github/workflows/hg-notify.yml$' && cmp -s "$PLUGIN/templates/workspace/.github/workflows/hg-notify.yml" "$F/.github/workflows/hg-notify.yml" \
+  && grep -qF 'cron: "30 7 * * *"' "$F/.github/workflows/hg-notify.yml"; } \
+  && ok "--refresh-ci replaces a workflow that passes the old secret name, with the plugin's schedule" || bad "--refresh-ci replaces a workflow that passes the old secret name, with the plugin's schedule (rc=$rc)" "$out"
+line="$(dstat)"
+t 'has "$line" "OK"' "doctor is OK again after the refresh" "$line"
 printf '# changed\n' >> "$F/.github/hg/notify.py"
 out="$(hg setup --root "$F" --refresh-scan)"; rc=$?
 { [ $rc -eq 0 ] && printf '%s' "$out" | grep -q $'^updated\t.github/hg/notify.py$' && cmp -s "$PLUGIN/tools/notify.py" "$F/.github/hg/notify.py"; } \
@@ -519,7 +631,7 @@ has "$out" "notify-" && bad "doctor prints no secret line without a GitHub origi
 git -C "$F" remote add origin https://github.com/acme/notes.git
 st() { (cd "$F" && CLAUDE_PROJECT_DIR="$F" GH_STUB="$1" hg notify status | tr -d '\r'); }
 out="$(st secret,green)"; rc=$?
-{ printf '%s\n' "$out" | grep -qxF $'OK\tnotify-secret\ta repository secret named HG_SLACK_WEBHOOK_URL exists. Its value cannot be read from here.'; } \
+{ printf '%s\n' "$out" | grep -qxF $'OK\tnotify-secret\ta repository secret named HG_NOTIFY_WEBHOOK_URL exists. Its value cannot be read from here.'; } \
   && ok "notify status reports the secret as set, by name" || bad "notify status reports the secret as set, by name" "$out"
 run_line="$(printf '%s\n' "$out" | grep $'\tnotify-run\t')"
 { has "$run_line" $'OK\tnotify-run\tlast run 2026-11-09 (schedule) did not fail.' && has "$run_line" "not proof of delivery" \
@@ -527,7 +639,7 @@ run_line="$(printf '%s\n' "$out" | grep $'\tnotify-run\t')"
   && ok "a green last run is reported as 'did not fail', never as delivered" || bad "a green last run is reported as 'did not fail', never as delivered" "$run_line"
 out="$(st none)"
 line="$(printf '%s\n' "$out" | grep $'\tnotify-secret\t')"
-{ has "$line" "WARN" && has "$line" "no repository secret named HG_SLACK_WEBHOOK_URL was found" && has "$line" "An organization secret cannot be seen from here" \
+{ has "$line" "WARN" && has "$line" "no repository secret named HG_NOTIFY_WEBHOOK_URL was found" && has "$line" "An organization secret cannot be seen from here" \
   && has "$line" "https://github.com/acme/notes/settings/secrets/actions/new"; } \
   && ok "notify status reports the secret as not found, says an organization secret cannot be seen, and gives the settings link" \
   || bad "notify status reports the secret as not found, says an organization secret cannot be seen, and gives the settings link" "$out"
@@ -557,7 +669,7 @@ t '! grep -qE "^[[:space:]]*(pull_request|pull_request_target|workflow_run|issue
 t '! grep -qE "^[[:space:]]*concurrency:" "$wf"' "the workflow has no concurrency key"
 sec="$(grep -n 'secrets\.' "$wf")"
 envline="$(grep -n '^        env:$' "$wf" | cut -d: -f1)"
-{ [ "$(printf '%s\n' "$sec" | grep -c .)" = 1 ] && has "$sec" '          HG_SLACK_WEBHOOK_URL: ${{ secrets.HG_SLACK_WEBHOOK_URL }}' \
+{ [ "$(printf '%s\n' "$sec" | grep -c .)" = 1 ] && has "$sec" '          HG_NOTIFY_WEBHOOK_URL: ${{ secrets.HG_NOTIFY_WEBHOOK_URL }}' \
   && [ "$(printf '%s\n' "$envline" | grep -c .)" = 1 ] && [ "${sec%%:*}" -gt "$envline" ]; } \
   && ok "the workflow names the secret once, in one step's env" || bad "the workflow names the secret once, in one step's env" "$sec / env at $envline"
 t '! grep -q "secrets\." "$scanwf"' "hg-scan.yml names no secret"
@@ -573,6 +685,11 @@ out="$(grep -nE '^(from|import) ' "$NOTIFY" | grep -vE 'import (datetime|hashlib
 t '[ -z "$out" ]' "the notifier imports only the standard library and its two neighbors" "$out"
 out="$(grep -n $'\xe2\x80\x94' "$NOTIFY" "$wf" "$REPO_ROOT/tests/notify/test-notify.sh" "$SETUP" "$PLUGIN/skills/doctor/SKILL.md")"
 t '[ -z "$out" ]' "no em dashes" "$out"
+t '[ "$($PY -c "import sys; sys.path.insert(0, sys.argv[1]); import notify, kit_registry; print(tuple(notify.CHANNELS) == kit_registry.MESSENGER_TYPES)" "$PLUGIN/tools")" = True ]' \
+  "every messenger type has a channel, and no channel is left over"
+OLD="HG_""SLACK_WEBHOOK_URL"   # built from two pieces, so this file does not hold it
+out="$(cd "$REPO_ROOT" && grep -rnF "$OLD" plugins tests README.md QUICKSTART*.md --include='*' 2>/dev/null | grep -v '/__pycache__/')"
+t '[ -z "$out" ]' "the old secret name appears nowhere in the plugin, the template, the guides or the tests" "$out"
 
 echo "notify: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

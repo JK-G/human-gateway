@@ -12,7 +12,9 @@ Usage:
   hg-tool gate observe <id> <source-id> --field FIELD --mark VALUE
   hg-tool gate observe <id> <source-id> --declare unchanged|changed --request "the person's words"
 
-Input paths are relative to the repo root, or absolute as D:\\x, D:/x or /d/x.
+Input paths are relative to the repo root, or absolute as D:\\x, D:/x or /d/x. An input is a tracked file, usually
+a published wiki page: a file in a private folder (vault/raw/, vault/inbox/, vault/daily/, intake/, .gateway/) is
+on one machine only and cannot be one.
 
 gates/<id>.md is the readable record. gates/<id>.lock.json holds {"approvals": [...]}, to which an
 approval is only ever appended. The status (draft, approved, reopened, unchecked) is computed from the
@@ -248,10 +250,12 @@ def terms_of(meta):
     return inputs, str(meta.get("accountable") or "")
 
 
-def valid_input(rel):
-    """A hand-edited list skips repo_relative, and a path outside the repo would hash differently in every clone."""
+def valid_input(rel, conf=None):
+    """A hand-edited list skips repo_relative, and a path outside the repo would hash differently in every clone.
+    A file in a private folder is on one machine only: its digest would read missing in every other clone."""
     parts = rel.split("/")
-    return not (rel.startswith("/") or re.match(r"[A-Za-z]:", rel) or ".." in parts or parts[0].lower() == GATES_DIR)
+    return not (rel.startswith("/") or re.match(r"[A-Za-z]:", rel) or ".." in parts or parts[0].lower() == GATES_DIR
+                or kr.is_private(rel, conf))
 
 
 # ---- outside sources ---------------------------------------------------------------------------
@@ -480,8 +484,8 @@ def load(root, path, conf=None, day=None):
     except OSError:
         meta = {}
     listed, accountable = terms_of(meta)
-    inputs = [rel for rel in listed if valid_input(rel)]
-    invalid = [rel for rel in listed if not valid_input(rel)]
+    inputs = [rel for rel in listed if valid_input(rel, conf)]
+    invalid = [rel for rel in listed if not valid_input(rel, conf)]
     flagged = [{"path": rel, "why": "invalid"} for rel in invalid]
     defined, bad_sources = sources_of(meta)
     flagged += [{"path": label, "why": "source_invalid"} for label in bad_sources]
@@ -596,7 +600,7 @@ def existing(root, gate_id):
     return path
 
 
-def repo_relative(root, raw):
+def repo_relative(root, raw, conf=None):
     from setup_workspace import native_root  # imported here: hooks read gates and never need this
     candidate = Path(native_root(raw.strip()))
     full = (candidate if candidate.is_absolute() else root / candidate).resolve()
@@ -604,6 +608,9 @@ def repo_relative(root, raw):
         rel = full.relative_to(root)
     except ValueError:
         raise Refused("input %s is outside this repository." % raw)
+    if kr.is_private(rel.as_posix(), conf):
+        raise Refused("input %s is in a folder that stays on one machine, so nobody else has it. "
+                      "Use the published wiki page made from it." % raw)
     if full.is_dir():
         raise Refused("input %s is a folder. List the files one by one." % raw)
     if rel.parts[0].lower() == GATES_DIR:
@@ -694,6 +701,8 @@ def cmd_new(root, conf, args):
         raise Usage("--title and --project cannot be empty")
     if not re.fullmatch(r"[^@\s]+@[^@\s]+", accountable):
         raise Refused("--accountable must be an email address, the one in that person's git config.")
+    refuse_private_text(root, conf, [("--title", title), ("--summary", opts.get("--summary", ""))]
+                        + [("--source %s" % raw.split("=", 1)[0], raw) for raw in opts.get("--source", [])])
     given = [split_source(raw) for raw in opts.get("--source", [])]
     watches = {}
     for raw in opts.get("--watch", []):
@@ -707,7 +716,7 @@ def cmd_new(root, conf, args):
         sources.append({"id": sid, "url": url, "watch": watches.get(sid, "")})
     if problems:
         raise Refused("\n".join(problems))
-    inputs = list(dict.fromkeys(repo_relative(root, raw) for raw in opts["--input"]))
+    inputs = list(dict.fromkeys(repo_relative(root, raw, conf) for raw in opts["--input"]))
     path = gate_path(root, gate_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = render_gate(gate_id, title, project, accountable, inputs, opts.get("--summary", ""), is_polish(conf), sources)
@@ -737,19 +746,47 @@ def cmd_list(root, conf, args):
             print("\t".join((g["id"], g["status"], g["title"], changed_text(g["changed"]))).rstrip("\t"))
 
 
-def refuse_unless_committed(root, gate_id, gate, extra=()):
+PRIVATE_TEXT = ("%s names a file that stays on one machine (a raw file, or a file in intake/ or the inbox). Cite a raw "
+                "file by the reference hg-tool raw-ref prints, and never name it.")
+
+
+def refuse_private_text(root, conf, parts):
+    """A gate file cannot be edited by hand and goes out with every publication, so text that names a person's own
+    files is refused here, before it is written. parts: [(what, text)]. The text itself is never repeated."""
+    for what, text in parts:
+        if text and kr.names_source(text, root, conf):
+            raise Refused(PRIVATE_TEXT % what)
+
+
+KEPT_OUT = "input %s is kept out of git on purpose, so nobody else could check it. Use a published wiki page as the input."
+
+
+def is_ignored(root, rel):
+    """git check-ignore exits 0 only for an ignored path inside a repository. It refuses --literal-pathspecs, so it
+    is started without it; a path given after -- is never read as an option."""
+    try:
+        out = subprocess.run(["git", "check-ignore", "-q", "--", rel], cwd=str(root), capture_output=True)
+    except OSError:
+        return False
+    return out.returncode == 0
+
+
+def refuse_unless_committed(root, gate_id, gate, extra=(), conf=None):
     """Compares content with HEAD instead of asking git status, which trusts git update-index flags.
 
     extra: problems found before this check (the sources), refused together with these in one message.
     """
-    problems = ["input %s is not a path inside this repository. Correct the list in gates/%s.md." % (rel, gate_id)
+    problems = [KEPT_OUT % rel if kr.is_private(rel, conf) else
+                "input %s is not a path inside this repository. Correct the list in gates/%s.md." % (rel, gate_id)
                 for rel in gate["invalid"]]
     for rel in gate["inputs"]:
         if not (root / rel).is_file():
             problems.append("input %s is missing." % rel)
             continue
         blob = head_blob(root, rel)
-        if blob is None:
+        if blob is None and is_ignored(root, rel):
+            problems.append(KEPT_OUT % rel)
+        elif blob is None:
             problems.append("input %s is not committed. Commit it first: nobody else could check an uncommitted file." % rel)
         elif canonicalize.bytes_digest(blob, rel) != digest_or_none(root / rel):
             problems.append("input %s differs from the last commit. Commit it or restore it first." % rel)
@@ -823,7 +860,7 @@ def cmd_approve(root, conf, args):
         raise Refused("%s cannot be read. Approvals are only appended, so repair it with git first."
                       % lock_path(root, gate_id).relative_to(root).as_posix())
     problems, sources, source_reasons = approve_source_problems(root, conf, gate_id, approvals)
-    refuse_unless_committed(root, gate_id, gate, problems)
+    refuse_unless_committed(root, gate_id, gate, problems, conf)
     by = git_email(root)
     if not by:
         raise Refused("git has no user.email here, and an approval must say who made it. Set it with git config.")
@@ -883,6 +920,7 @@ def cmd_source(root, conf, args):
     ids = [s["id"] for s in current]
     if action == "add":
         sid, url = split_source(arg)
+        refuse_private_text(root, conf, [("source %s" % one_line(sid)[:60], arg)])
         if sid in ids:
             raise Refused("source %s is already in gates/%s.md. Remove it first to change it." % (sid, gate_id))
         watch = opts.get("--watch", "").strip()
@@ -1042,6 +1080,7 @@ def cmd_note(root, conf, args):
     text, author = one_line(opts.get("--text", "")), one_line(opts.get("--author", ""))
     if not text or not author:
         raise Usage("--text and --author are required")
+    refuse_private_text(root, conf, [("--text", text), ("--author", author)])
     entry = "- %s, %s: %s" % (kr.local_now(conf["TIMEZONE"]).strftime("%Y-%m-%d %H:%M"), author, text)
     lines = path.read_text(encoding="utf-8").rstrip("\n").split("\n")
     heads = [k for k, ln in enumerate(lines) if ln.startswith("## ") and ln[3:].strip() in NEXT_HEADINGS]

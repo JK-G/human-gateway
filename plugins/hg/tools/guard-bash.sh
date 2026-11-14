@@ -17,6 +17,12 @@
 # The vault raw/ prefix is append-only: creating a NEW file or directory there passes, changing
 # or deleting an existing one is blocked. Skills bring a source in with hg-tool raw-add.
 #
+# The private folders (PRIVATE_PATHS: vault/raw/, vault/inbox/, vault/daily/, intake/, .gateway/) hold a
+# person's own files, which stay out of git and have no other copy. Inside the workspace these git forms are
+# blocked: git add with -f, a short cluster holding f or an abbreviation of --force; git clean with a short
+# cluster holding x or X; git stash with --all, -a or a short cluster holding a; git mv into a private folder;
+# and git update-index, always.
+#
 # A line that passes a mark to hg-tool gate observe (text from an outside system) must be exactly the
 # command the tool printed, alone, with the value in single quotes and only safe characters in it.
 #
@@ -47,7 +53,7 @@ if [ "${1:-}" = "--cmd" ]; then          # recursive mode for sh -c / bash -c bo
   CMD="$(cat)"; CWD="${KIT_GUARD_CWD:-$ROOT_L}"
 else
   eval "$(${HG_PYTHON:-python3} -S "$TOOLS/hook_env.py" 2>/dev/null)"
-  export FORBIDDEN_WRITE_PATHS VAULT_DIR ROOT_NATIVE
+  export FORBIDDEN_WRITE_PATHS VAULT_DIR ROOT_NATIVE PRIVATE_PATHS
   CWD="${CWD:-$ROOT_L}"
 fi
 [ -z "${CMD:-}" ] && exit 0
@@ -59,6 +65,7 @@ if [[ "$CMD" =~ $OBS_ANY ]] && [[ "$CMD" == *--mark* ]] && ! [[ "$CMD" =~ $OBS_L
   exit 2
 fi
 FORBIDDEN_WRITE_PATHS="${FORBIDDEN_WRITE_PATHS:-vault/raw/ gates/ .obsidian/}"
+PRIVATE_PATHS="${PRIVATE_PATHS:-${VAULT_DIR:-vault}/raw/ ${VAULT_DIR:-vault}/inbox/ ${VAULT_DIR:-vault}/daily/ intake/ .gateway/}"
 to_posix "$CWD"; CWD="$REPLY"
 ROOT_W="$ROOT_L"                 # Git Bash reports folders under its own mounts as /tmp/x, payloads say C:/.../x
 if [ "$WIN" = 1 ] && [ -n "${ROOT_NATIVE:-}" ]; then to_posix "$ROOT_NATIVE"; ROOT_W="$REPLY"; fi
@@ -100,6 +107,15 @@ match() {  # match <relpath> -> prints the forbidden prefix it falls under
     case "$p" in .*) case "/$r/" in */$p*) echo "$p"; return 0;; esac;; esac
   done
   return 1
+}
+private_match() {  # private_match <relpath>: status 0 when it lies in a private folder; case is ignored everywhere
+  [ -z "$1" ] && return 1
+  [ "$1" = "$UNSURE" ] && return 0
+  ( shopt -s nocasematch; for p in $PRIVATE_PATHS; do case "$1/" in $p*) exit 0;; esac; done; exit 1 )
+}
+gblock() {
+  echo "BLOCKED by guard-bash: $1" >&2
+  exit 2
 }
 block() {
   echo "BLOCKED by guard-bash: '$1' would write to '$2' (protected prefix '$3')." >&2
@@ -236,6 +252,27 @@ analyze() {
       local r p; r="$(rel "${gdir:-.}")"
       if case "$GIT_MUT" in *" $sub "*) true;; *) false;; esac && p="$(match "$r")"; then block "git $sub" "$r" "$p"; fi
       [ -n "$gdir" ] && { local old="$CWD"; CWD="$ROOT_L/$r"; }
+      if [ -n "$r" ]; then   # git acts inside this workspace: forms that leak or destroy a person's own files
+        case "$sub" in
+          add|clean|stash)
+            for x in ${rest[@]+"${rest[@]}"}; do
+              [ "$x" = "--" ] && break
+              case "$sub:$x" in
+                add:--*) if [ "${#x}" -ge 3 ]; then case "--force" in "$x"*) gblock "git add --force would put a file into git that this workspace keeps out on purpose.";; esac; fi;;
+                add:-*f*) gblock "git add --force would put a file into git that this workspace keeps out on purpose.";;
+                clean:--*) ;;
+                clean:-*[xX]*) gblock "git clean -x deletes files that are kept out of git, such as a person's source files and daily notes. They have no other copy.";;
+                stash:--*) if [ "${#x}" -ge 3 ]; then case "--all" in "$x"*) gblock "git stash --all moves files that are kept out of git into a stash and deletes them from this folder. A person's source files have no other copy.";; esac; fi;;
+                stash:-*a*) gblock "git stash --all moves files that are kept out of git into a stash and deletes them from this folder. A person's source files have no other copy.";;
+              esac
+            done;;
+          update-index) gblock "git update-index can put a file into git that this workspace keeps out on purpose.";;
+          mv) k=${#gnf[@]}
+              if [ "$k" -ge 2 ] && private_match "$(rel "$(dest_of "${gnf[k-2]}" "${gnf[k-1]}")")"; then
+                gblock "git mv would put the file into git's index under a private folder. Bring a source in with hg-tool raw-add."
+              fi;;
+        esac
+      fi
       case "$sub" in
         rm) for x in ${gnf[@]+"${gnf[@]}"}; do chk x "git rm" "$x"; done;;
         checkout|restore)

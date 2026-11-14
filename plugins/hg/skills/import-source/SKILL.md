@@ -1,13 +1,13 @@
 ---
 name: import-source
-description: Wrap an external export (notes-app export, transcript, PDF, URL) with raw frontmatter and bring it into vault/raw/ for /hg:ingest.
+description: Wrap an external export (notes-app export, transcript, PDF, URL) with raw frontmatter and bring it into vault/raw/ on this machine for /hg:ingest.
 argument-hint: "<file|url> --project <slug> --kind meetings|interviews|sources|snapshots"
 ---
 
 # /hg:import-source
 
-The one sanctioned way for an outside file to enter `vault/raw/`. It records provenance once, hands the
-file to `hg-tool raw-add` for its permanent dated home, and stops. It never ingests: `/hg:ingest` stays a separate step so a
+The one sanctioned way for an outside file to enter `vault/raw/`, which stays on this machine and outside git.
+It records provenance once, hands the file to `hg-tool raw-add` for its permanent dated home, and stops. It never ingests: `/hg:ingest` stays a separate step so a
 dry run remains the default habit.
 
 ## Arguments
@@ -28,14 +28,13 @@ dry run remains the default habit.
    destination from them: `vault/raw/<project>/<kind>/<YYYY-MM-DD>-<slug>.<ext>`. Raw files are never
    overwritten, so for a name that is taken pick a new slug or, for a changed source, a new capture
    date (a later snapshot).
-3. **Scan.** Run `hg-tool scan <file>`. Exit 2 means the scan did not run: fix that first. Exit 0 means it
-   found nothing it can recognise. Then still read text files for full names of people outside the team,
-   which the scan cannot judge, and look through binary files such as a PDF, whose contents it does not
-   read. Exit 1, or a name found by reading -> stop. Show the findings as printed: the values are masked,
-   and you never write out the original. Offer two paths: anonymize the inbox copy now (replace people with
-   roles, drop contact details, take out the secret) and scan again until it is clean, or keep the file out
-   of git entirely. For a `filetype` finding the second path is the only one: `link only` means the repo
-   gets a link to the file, `secret file` means it gets nothing.
+3. **Scan.** Run `hg-tool scan <file>`. Exit 2 means the scan did not run: fix that first. The file stays on
+   this machine, so only a secret stops the flow: a `secret` finding, or a `filetype` finding with
+   `secret file`. Show the findings as printed: the values are masked, and you never write out the original.
+   The way out is to take the secret out of the file, or to keep the file out of git entirely, and here also
+   out of `vault/raw/`. Contact data (`pii`) and a `link only` file (a spreadsheet, a Word file) do not stop the
+   flow: say that the file holds them and that none of it may reach a page. Look through binary files such as a
+   PDF, whose contents the scan does not read, for a secret.
 4. **Wrap** (Markdown and plain-text sources only, edited in place while still in the inbox):
    - Normalize export noise only: tool-specific bullet nesting, inline metadata lines, broken line
      wraps. Never rewrite content.
@@ -80,4 +79,7 @@ export). Give each a thin adapter instead of baking the vendor into this command
 
 - Edit a file that is already in `vault/raw/`, or reuse a destination name.
 - Run `/hg:ingest` automatically.
-- Commit. The user or the orchestrating session commits the move together with the ingest result.
+- Commit. The raw file never enters git. The pages the ingest makes go out through `/hg:publish`. Before any
+  commit in a department repository, run hg-tool publish check, show the person the preview it writes, and commit
+  only through the commit step of /hg:publish, after the person's own yes in this session.
+- Name the destination in any tracked file: a page cites it by the reference `hg-tool raw-ref <destination>` prints.

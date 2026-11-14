@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
-"""notify.py - say in the department's Slack channel which gates wait. No model, no link, fixed templates.
+"""notify.py - say in the department's channel which gates wait. No model, no link, fixed templates.
 
 Usage:
-  hg-tool notify push --before SHA --after SHA    preview: print the payloads this push would send
-  hg-tool notify digest [--force]                 preview: print today's list, if any (--force: any day)
-  hg-tool notify test                             preview: print the test message
-  hg-tool notify status                           checks, as LEVEL<TAB>check<TAB>message lines
-  python .github/hg/notify.py ci [--dry-run]      the only form that posts; reads the event from the environment
+  hg-tool notify push --before SHA --after SHA [--as CHANNEL]   preview: the payloads this push would send
+  hg-tool notify digest [--force] [--as CHANNEL]                preview: today's list, if any (--force: any day)
+  hg-tool notify test [--as CHANNEL]                            preview: the test message
+  hg-tool notify status                                         checks, as LEVEL<TAB>check<TAB>message lines
+  python .github/hg/notify.py ci [--dry-run]                    the only form that posts; reads the event from the environment
+
+The channel is nodes.messenger.type in .claude/hg.json, and --as previews another one:
+  slack     a Slack incoming webhook                        {"text": ...}
+  teams     a Microsoft Teams webhook made with Workflows   the message envelope with one Adaptive Card,
+                                                            one TextBlock per line
+  webhook   any https address that takes JSON               {"text": ...}
+With no type declared a preview needs --as, and 'ci' sends nothing.
 
 Only 'ci' posts, and only 'ci' reads the secret. A preview prints one JSON payload per line on stdout and a
 one-line count on stderr. 'ci' reads HG_EVENT (push, schedule, workflow_dispatch), HG_MODE (list or test, for
-a manual run; digest is another name for list), HG_BEFORE and HG_AFTER. Its first step takes HG_SLACK_WEBHOOK_URL out of the process environment,
-so no git child process inherits it, and the address is never printed.
+a manual run; digest is another name for list), HG_BEFORE and HG_AFTER. Its first step takes
+HG_NOTIFY_WEBHOOK_URL out of the process environment, so no git child process inherits it, and the address is
+never printed.
 
 A push posts one message per gate that started to wait (draft or reopened) between the tree before and the
 tree after it, or one list when more than five did. A workday morning posts one list of what waits and what
 has an outside source with no recent recorded check, only when there is something.
 
-Exit (ci): 0 sent, nothing to send, the secret not set (the feature is off), the tree before the push not in
-the clone, not a workday, or not a department workspace; 1 a message was due and not delivered (and in test
-mode when the secret is not set); 2 usage error. A green run does not prove that a message arrived.
+Exit (ci): 0 sent, nothing to send, no messenger declared or the secret not set (the feature is off), the
+tree before the push not in the clone, not a workday, or not a department workspace; 1 a message was due and
+not delivered (and in test mode when no messenger is declared or the secret is not set); 2 usage error. A green run does not prove that a message arrived.
 'status' always exits 0. The previews exit 0, 1 when refused, 2 on a usage error.
 
 Standard library only. hg-tool setup copies it to .github/hg/ for CI, next to gate.py, canonicalize.py,
@@ -47,7 +55,7 @@ import gate  # noqa: E402
 import kit_registry as kr  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-SECRET_ENV = "HG_SLACK_WEBHOOK_URL"
+SECRET_ENV = "HG_NOTIFY_WEBHOOK_URL"
 WORKFLOW = ".github/workflows/hg-notify.yml"
 COPIES = ("notify.py", "gate.py", "canonicalize.py", "kit_registry.py")  # scan.py is doctor's 'scanner' check
 ZERO = "0" * 40
@@ -65,10 +73,13 @@ BETWEEN = 1
 ADDRESS_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 DROP_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
 QUOTES = str.maketrans({c: "'" for c in '"“”„‟«»‹›″‶〝〞〟＂'})
-MARKUP = str.maketrans({"<": None, ">": None, "`": None, "*": None, "~": None, "|": None, "_": " ", "@": "(at)"})
+MARKUP_SLACK = {"<": None, ">": None, "`": None, "*": None, "~": None, "|": None, "_": " ", "@": "(at)"}
+MARKUP_WIDE = dict(MARKUP_SLACK, **{"[": None, "]": None, "\\": None})  # Teams and the generic webhook
 SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
-BAD_SECRET = ("notify: the secret does not look like a Slack webhook address. Paste it again on GitHub, "
-              "with no space or line break around it.")
+BAD_SECRET = "notify: the secret does not look like %s. Paste it again on GitHub, with no space or line break around it."
+NO_MESSENGER = "notify: no messenger is declared in .claude/hg.json, so nothing is sent."
+NO_MESSENGER_PREVIEW = ("notify: no messenger is declared in .claude/hg.json (nodes.messenger.type). "
+                        "Add --as slack, teams or webhook to preview one.")
 
 
 class Usage(Exception):
@@ -100,7 +111,7 @@ TEXT = {
         "more": "i jeszcze {k}.",
         "push_list": "Po ostatniej zmianie czekają na zatwierdzenie ({n}):",
         "push_end": "Otwórz Claude w folderze działu i wpisz /hg:gate.",
-        "test": "To jest wiadomość próbna z hg. Połączenie ze Slackiem działa.",
+        "test": "To jest wiadomość próbna z hg. Połączenie z kanałem działu działa.",
         "nobody": "nie podano",
     },
     False: {
@@ -120,7 +131,7 @@ TEXT = {
         "more": "and {k} more.",
         "push_list": "After the last change these wait for approval ({n}):",
         "push_end": "Open Claude in the department folder and type /hg:gate.",
-        "test": "This is a test message from hg. The connection to Slack works.",
+        "test": "This is a test message from hg. The connection to the department's channel works.",
         "nobody": "not given",
     },
 }
@@ -134,17 +145,21 @@ REASON_GROUPS = (
 )
 
 
-def clean(title):
-    """A gate title made safe for a Slack message: one line, no mention, no link, no markup, at most 80 characters."""
+def clean(title, ch):
+    """A gate title made safe for the channel ch: one line, no mention, no link, no markup, at most 80 characters."""
     text = "".join(" " if unicodedata.category(c) in DROP_CATEGORIES else c for c in str(title))
     text = " ".join(text.split())
-    text = text.translate(QUOTES).translate(MARKUP)
+    text = text.translate(QUOTES).translate(ch["markup"])
     while SCHEME_RE.search(text):  # one pass could join the text around a removed scheme into a new one
         text = SCHEME_RE.sub("", text)
     text = " ".join(text.split())
-    text = text.replace("&", "&amp;")
+    if ch["escape"]:
+        text = text.replace("&", "&amp;")
     if len(text) > TITLE_MAX:
-        text = re.sub(r"&[a-z]*$", "", text[:TITLE_MAX - 1]).rstrip() + "…"  # never half an &amp;
+        cut = text[:TITLE_MAX - 1]
+        if ch["escape"]:
+            cut = re.sub(r"&[a-z]*$", "", cut)  # never half an &amp;
+        text = cut.rstrip() + "…"
     return text
 
 
@@ -154,14 +169,43 @@ def address(value, polish):
     return value if len(value) <= ADDRESS_MAX and ADDRESS_RE.fullmatch(value) else TEXT[polish]["nobody"]
 
 
-def slack_payload(text):
+def text_payload(text):
+    """Slack and the generic webhook: one key, the whole message."""
     return json.dumps({"text": text[:TEXT_MAX]}, ensure_ascii=True)
 
 
-# The one seam for another channel: its address shape, its cleaning and its payload.
-CHANNELS = {"slack": {"address": re.compile(r"https://hooks\.slack\.com/[A-Za-z0-9/_-]+"),
-                      "clean": clean, "payload": slack_payload}}
-CHANNEL = CHANNELS["slack"]
+def teams_payload(text):
+    """A Teams webhook made with Workflows: the message envelope with one Adaptive Card, one TextBlock per line."""
+    body = []
+    for k, line in enumerate(text[:TEXT_MAX].split("\n")):
+        block = {"type": "TextBlock", "text": line, "wrap": True}
+        if k:
+            block["spacing"] = "None"
+        body.append(block)
+    card = {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
+            "version": "1.2", "body": body}
+    attachment = {"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None, "content": card}
+    return json.dumps({"type": "message", "attachments": [attachment]}, ensure_ascii=True)
+
+
+# One entry per value of nodes.messenger.type: the address the secret must be, the cleaning of a title, the payload.
+CHANNELS = {
+    "slack": {"name": "slack", "address": re.compile(r"https://hooks\.slack\.com/[A-Za-z0-9/_-]+"),
+              "shape": "a Slack webhook address", "markup": str.maketrans(MARKUP_SLACK), "escape": True,
+              "payload": text_payload},
+    "teams": {"name": "teams",
+              "address": re.compile(r"https://[A-Za-z0-9.-]+\.(?:logic\.azure\.com|api\.powerplatform\.com)(?::\d+)?/\S+"),
+              "shape": "a Teams workflow address", "markup": str.maketrans(MARKUP_WIDE), "escape": False,
+              "payload": teams_payload},
+    "webhook": {"name": "webhook", "address": re.compile(r"https://[A-Za-z0-9.-]+(?::\d+)?(?:/\S*)?"),
+                "shape": "an https address", "markup": str.maketrans(MARKUP_WIDE), "escape": False,
+                "payload": text_payload},
+}
+
+
+def channel_of(conf):
+    """The declared channel's entry, or None when no messenger is declared."""
+    return CHANNELS.get(conf.get("MESSENGER", ""))
 
 
 def reasons_text(changed, polish):
@@ -171,25 +215,25 @@ def reasons_text(changed, polish):
     return ", ".join(found) or phrases["list"]
 
 
-def fields(g, polish):
-    return {"title": CHANNEL["clean"](g["title"]), "id": g["id"], "accountable": address(g["accountable"], polish)}
+def fields(g, polish, ch):
+    return {"title": clean(g["title"], ch), "id": g["id"], "accountable": address(g["accountable"], polish)}
 
 
-def gate_message(g, polish):
+def gate_message(g, polish, ch):
     t = TEXT[polish]
     if g["status"] == "draft":
-        return t["new"].format(**fields(g, polish))
-    return t["reopened"].format(reasons=reasons_text(g["changed"], polish), **fields(g, polish))
+        return t["new"].format(**fields(g, polish, ch))
+    return t["reopened"].format(reasons=reasons_text(g["changed"], polish), **fields(g, polish, ch))
 
 
-def wait_line(g, polish):
+def wait_line(g, polish, ch):
     t = TEXT[polish]
-    return t["wait_line"].format(status=t["status"][g["status"]], **fields(g, polish))
+    return t["wait_line"].format(status=t["status"][g["status"]], **fields(g, polish, ch))
 
 
-def check_line(g, polish):
+def check_line(g, polish, ch):
     days = max([c.get("days") or 0 for c in g["changed"] if c.get("why") == "source_stale"] or [0])
-    f = fields(g, polish)
+    f = fields(g, polish, ch)
     return TEXT[polish]["check_line"].format(title=f["title"], id=f["id"], days=days)
 
 
@@ -214,15 +258,15 @@ def capped(sections, polish):
     return out
 
 
-def digest_message(gates, polish):
+def digest_message(gates, polish, ch):
     """The morning list, or None when nothing waits and nothing is to check."""
     t = TEXT[polish]
     waiting = waiting_order(gates)
     to_check = sorted((g for g in gates if g["status"] == "unchecked"), key=lambda g: g["id"])
     if not waiting and not to_check:
         return None
-    lines = capped([(t["waiting"].format(n=len(waiting)), [wait_line(g, polish) for g in waiting]),
-                    (t["to_check"].format(n=len(to_check)), [check_line(g, polish) for g in to_check])], polish)
+    lines = capped([(t["waiting"].format(n=len(waiting)), [wait_line(g, polish, ch) for g in waiting]),
+                    (t["to_check"].format(n=len(to_check)), [check_line(g, polish, ch) for g in to_check])], polish)
     return "\n".join(lines + [t["digest_end"]])
 
 
@@ -232,14 +276,14 @@ def started_waiting(before, after):
             and (g["id"] not in before or before[g["id"]]["status"] not in gate.WAITING)]
 
 
-def push_messages(started, polish):
+def push_messages(started, polish, ch):
     if not started:
         return []
     started = waiting_order(started)
     if len(started) <= PER_GATE_MAX:
-        return [gate_message(g, polish) for g in started]
+        return [gate_message(g, polish, ch) for g in started]
     t = TEXT[polish]
-    lines = capped([(t["push_list"].format(n=len(started)), [wait_line(g, polish) for g in started])], polish)
+    lines = capped([(t["push_list"].format(n=len(started)), [wait_line(g, polish, ch) for g in started])], polish)
     return ["\n".join(lines + [t["push_end"]])]
 
 
@@ -276,7 +320,7 @@ def statuses_at(root, sha, day):
         git(root, "worktree", "prune")
 
 
-def push_texts(root, before, after, polish, day):
+def push_texts(root, before, after, polish, day, ch):
     """The messages of one push, or None when the tree before it is not in this clone."""
     for sha, name in ((before, "--before"), (after, "--after")):
         if not sha or not SHA_RE.fullmatch(sha):
@@ -290,7 +334,7 @@ def push_texts(root, before, after, polish, day):
     else:
         old = statuses_at(root, before, day)
     new = statuses_at(root, after, day)
-    return push_messages(started_waiting(old, list(new.values())), polish)
+    return push_messages(started_waiting(old, list(new.values())), polish, ch)
 
 
 def zone_today(conf):
@@ -315,9 +359,9 @@ def is_workday(conf):
     return zone_today(conf).isoweekday() in workday_numbers(conf["WORKDAYS"])
 
 
-def digest_texts(root, day):
+def digest_texts(root, day, ch):
     polish = gate.is_polish(kr.load_conf(root))
-    text = digest_message(gate.all_gates(root, day), polish)
+    text = digest_message(gate.all_gates(root, day), polish, ch)
     return [text] if text else []
 
 
@@ -355,7 +399,7 @@ def send(payload, url, opener=None, sleep=time.sleep):
             if attempt == 1 and (code == 429 or 500 <= code <= 599):
                 sleep(RETRY_WAIT)
                 continue
-            return "Slack answered with HTTP %d" % code
+            return "the channel answered with HTTP %d" % code
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             if attempt == 1:
                 sleep(RETRY_WAIT)
@@ -369,9 +413,9 @@ def take_secret():
     return os.environ.pop(SECRET_ENV, "").strip()
 
 
-def deliver(payloads, url, opener=None, sleep=time.sleep):
-    if not CHANNEL["address"].fullmatch(url):
-        print(BAD_SECRET, file=sys.stderr)
+def deliver(payloads, url, ch, opener=None, sleep=time.sleep):
+    if not ch["address"].fullmatch(url):
+        print(BAD_SECRET % ch["shape"], file=sys.stderr)
         return 1
     failed = 0
     for k, payload in enumerate(payloads, 1):
@@ -385,24 +429,24 @@ def deliver(payloads, url, opener=None, sleep=time.sleep):
     return 1 if failed else 0
 
 
-def ci_texts(root, conf, event, mode):
+def ci_texts(root, conf, event, mode, ch):
     """(messages, a notice for stderr or ''). Raises Usage on an unknown event or mode."""
     polish = gate.is_polish(conf)
     day = gate.today()
     if event == "push":
-        texts = push_texts(root, os.environ.get("HG_BEFORE", ""), os.environ.get("HG_AFTER", ""), polish, day)
+        texts = push_texts(root, os.environ.get("HG_BEFORE", ""), os.environ.get("HG_AFTER", ""), polish, day, ch)
         if texts is None:
             return [], "notify: the commit before this push is not in the clone (a force push?), so nothing is sent. The next morning list covers it."
         return texts, ""
     if event == "schedule":
         if not is_workday(conf):
             return [], "notify: today is not a workday in .claude/hg.json, so nothing is sent."
-        return digest_texts(root, day), ""
+        return digest_texts(root, day, ch), ""
     if event == "workflow_dispatch":
         if mode == "test":
             return [test_message(polish)], ""
         if mode in ("", "list", "digest"):
-            return digest_texts(root, day), ""
+            return digest_texts(root, day, ch), ""
         raise Usage("notify: unknown HG_MODE (list or test)")
     raise Usage("notify: unknown HG_EVENT (push, schedule or workflow_dispatch)")
 
@@ -417,13 +461,20 @@ def ci(argv):
         event, mode = os.environ.get("HG_EVENT", ""), os.environ.get("HG_MODE", "")
         if event not in ("push", "schedule", "workflow_dispatch"):
             raise Usage("notify: unknown HG_EVENT (push, schedule or workflow_dispatch)")
+        if event == "workflow_dispatch" and mode not in ("", "list", "digest", "test"):
+            raise Usage("notify: unknown HG_MODE (list or test)")
         if not is_workspace(root):
             print("notify: .claude/hg.json is missing, so this is not a department workspace. Nothing to do.", file=sys.stderr)
             return 0
-        texts, notice = ci_texts(root, kr.load_conf(root), event, mode)
+        conf = kr.load_conf(root)
+        ch = channel_of(conf)
+        if ch is None:
+            print(NO_MESSENGER, file=sys.stderr)
+            return 1 if event == "workflow_dispatch" and mode == "test" else 0
+        texts, notice = ci_texts(root, conf, event, mode, ch)
         if notice:
             print(notice, file=sys.stderr)
-        payloads = [CHANNEL["payload"](text) for text in texts]
+        payloads = [ch["payload"](text) for text in texts]
         if dry:
             for payload in payloads:
                 print(payload)
@@ -436,7 +487,7 @@ def ci(argv):
         if not url:
             print("notify: the secret %s is not set, so %d message(s) were skipped." % (SECRET_ENV, len(payloads)), file=sys.stderr)
             return 1 if event == "workflow_dispatch" and mode == "test" else 0
-        return deliver(payloads, url)
+        return deliver(payloads, url, ch)
     except Usage as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -463,20 +514,28 @@ def file_hash(path):
 
 def copies_check(root):
     if not (root / WORKFLOW).is_file():
-        return ("WARN", "notify", "%s is missing, so no Slack message is sent. Run /hg:setup --update." % WORKFLOW)
+        if channel_of(kr.load_conf(root)) is None:
+            return ("OK", "notify", "no messenger is declared, so no message is sent when a gate waits. "
+                    "/hg:setup --nodes plugs one in.")
+        return ("WARN", "notify", "%s is missing, so no message is sent to the channel. Run /hg:setup --update."
+                % WORKFLOW)
     missing = [name for name in COPIES if not (root / ".github" / "hg" / name).is_file()]
     differ = [name for name in COPIES if name not in missing
               and file_hash(root / ".github" / "hg" / name) != file_hash(HERE / name)]
-    if missing or differ:
+    template = HERE.parent / "templates" / "workspace" / WORKFLOW  # only the plugin has it, not the copy in CI
+    old_workflow = template.is_file() and file_hash(root / WORKFLOW) != file_hash(template)
+    if missing or differ or old_workflow:
         parts = (["missing in .github/hg/: %s" % ", ".join(missing)] if missing else []) \
-            + (["different from the plugin's in .github/hg/: %s" % ", ".join(differ)] if differ else [])
+            + (["different from the plugin's in .github/hg/: %s" % ", ".join(differ)] if differ else []) \
+            + (["%s is different from the plugin's" % WORKFLOW] if old_workflow else [])
         return ("WARN", "notify", "%s. Run /hg:setup --update." % "; ".join(parts))
     return ("OK", "notify", "the workflow and the copies it uses match the plugin")
 
 
-def github_repo(root):
-    """'O/R' of a github.com origin, or None. Only the two names, so a credential in the address is never printed."""
-    out = git(root, "remote", "get-url", "origin")
+def github_repo(root, remote="origin"):
+    """'O/R' of a github.com remote (origin unless named), or None. Only the two names, so a credential in the
+    address is never printed."""
+    out = git(root, "remote", "get-url", "--", remote)
     if out is None or out.returncode != 0:
         return None
     raw = out.stdout.strip()
@@ -553,8 +612,11 @@ def run_check(cmd, repo):
 
 
 def checks(root):
-    """[(level, check, message)] of the notifier: the files, then the secret and the last run through gh."""
+    """[(level, check, message)] of the notifier: the files, then, when a messenger is declared, the secret by
+    name and the last run, through gh."""
     found = [copies_check(root)]
+    if channel_of(kr.load_conf(root)) is None:
+        return found
     repo = github_repo(root)
     cmd = gh_command()
     if not repo or not cmd:
@@ -571,45 +633,70 @@ def checks(root):
 
 # ---- command line ---------------------------------------------------------------------------
 
-def print_payloads(texts, what):
-    payloads = [CHANNEL["payload"](text) for text in texts]
+def print_payloads(texts, what, ch):
+    payloads = [ch["payload"](text) for text in texts]
     for payload in payloads:
         print(payload)
     print("notify: %d message(s) %s." % (len(payloads), what), file=sys.stderr)
     return 0
 
 
+PREVIEW_USAGE = {"test": "usage: hg-tool notify test [--as slack|teams|webhook]",
+                 "digest": "usage: hg-tool notify digest [--force] [--as slack|teams|webhook]",
+                 "push": "usage: hg-tool notify push --before SHA --after SHA [--as slack|teams|webhook]"}
+
+
+def take_as(sub, args):
+    """(the channel --as names, or None; the other arguments)."""
+    named, rest, args = None, [], list(args)
+    while args:
+        arg = args.pop(0)
+        if arg != "--as":
+            rest.append(arg)
+            continue
+        if named is not None or not args or args[0] not in CHANNELS:
+            raise Usage(PREVIEW_USAGE[sub])
+        named = CHANNELS[args.pop(0)]
+    return named, rest
+
+
 def preview(sub, args):
+    named, args = take_as(sub, args)
+    opts = {}
+    if sub == "test" and args:
+        raise Usage(PREVIEW_USAGE[sub])
+    if sub == "digest" and args not in ([], ["--force"]):
+        raise Usage(PREVIEW_USAGE[sub])
+    if sub == "push":
+        rest = list(args)
+        while rest:
+            flag = rest.pop(0)
+            if flag not in ("--before", "--after") or not rest or flag in opts:
+                raise Usage(PREVIEW_USAGE[sub])
+            opts[flag] = rest.pop(0)
+        if set(opts) != {"--before", "--after"}:
+            raise Usage(PREVIEW_USAGE[sub])
     root = kr.kit_root()
     if not is_workspace(root):
         raise Refused("notify: .claude/hg.json is missing, so this is not a department workspace.")
     conf = kr.load_conf(root)
     polish = gate.is_polish(conf)
+    ch = named or channel_of(conf)
+    if ch is None:
+        raise Refused(NO_MESSENGER_PREVIEW)
     if sub == "test":
-        if args:
-            raise Usage("usage: hg-tool notify test")
-        return print_payloads([test_message(polish)], "would be sent")
+        return print_payloads([test_message(polish)], "would be sent", ch)
     if sub == "digest":
-        if args not in ([], ["--force"]):
-            raise Usage("usage: hg-tool notify digest [--force]")
         if not args and not is_workday(conf):
             print("notify: today is not a workday in .claude/hg.json, so the morning list is not sent. --force shows it.",
                   file=sys.stderr)
-            return print_payloads([], "would be sent")
-        return print_payloads(digest_texts(root, gate.today()), "would be sent")
-    opts, rest = {}, list(args)
-    while rest:
-        flag = rest.pop(0)
-        if flag not in ("--before", "--after") or not rest or flag in opts:
-            raise Usage("usage: hg-tool notify push --before SHA --after SHA")
-        opts[flag] = rest.pop(0)
-    if set(opts) != {"--before", "--after"}:
-        raise Usage("usage: hg-tool notify push --before SHA --after SHA")
-    texts = push_texts(root, opts["--before"], opts["--after"], polish, gate.today())
+            return print_payloads([], "would be sent", ch)
+        return print_payloads(digest_texts(root, gate.today(), ch), "would be sent", ch)
+    texts = push_texts(root, opts["--before"], opts["--after"], polish, gate.today(), ch)
     if texts is None:
         print("notify: the commit before the push is not in this clone, so nothing would be sent.", file=sys.stderr)
-        return print_payloads([], "would be sent")
-    return print_payloads(texts, "would be sent")
+        return print_payloads([], "would be sent", ch)
+    return print_payloads(texts, "would be sent", ch)
 
 
 USAGE = __doc__.split("\n\n")[1]

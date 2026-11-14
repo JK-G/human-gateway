@@ -15,7 +15,9 @@
 # sections; keys not documented in schema.md (WARN); filed query answers carry
 # provenance (pages a log `file_back` op created need derived_from, every `### Q:`
 # entry under `## Q&A` needs a "Derived from: [[...]]" line); tags not in TAGS.md
-# (INFO); living pages older than the type's stale_days (WARN).
+# (INFO); living pages older than the type's stale_days (WARN); sources, derived_from, superseded_by and
+# source_raw hold a source reference, a wiki page or a journal day (bad_source_entry, ERROR; a wiki or journal
+# entry that does not exist is dead_source, WARN); source_url is one clean link (bad_source_url, ERROR).
 # Env: KIT_TODAY=YYYY-MM-DD pins "today" (tests).
 set -u
 TOOLS="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"
@@ -25,7 +27,7 @@ ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) [ $# -ge 2 ] || { echo "usage: $0 [--root DIR] [PATH ...]" >&2; exit 2; }; ROOT="$2"; shift 2 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     --*) echo "unknown option: $1" >&2; exit 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
@@ -38,6 +40,7 @@ import datetime, json, os, re, sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 import kit_registry as kr
+import gate
 kr.stdio_utf8()
 
 root = Path(sys.argv[2]).resolve()
@@ -140,6 +143,21 @@ for f in files:
     for k in ("aliases", "sources", "derived_from", "tags", "canonical_for"):
         if k in fm and fm[k] is not None and not isinstance(fm[k], list):
             emit("ERROR", f, "not_a_list: '%s' must be a YAML list" % k)
+    # Sources: a reference to a raw file on someone's machine, a wiki page or a journal day; never a path that
+    # dies in a colleague's clone. The offending value is not printed: it may be a raw file's name.
+    for k in ("sources", "derived_from", "superseded_by", "source_raw"):
+        v = fm.get(k)
+        entries = v if isinstance(v, list) else [] if v in (None, "") else [v]
+        if any(not kr.valid_source_entry(x) for x in entries):
+            emit("ERROR", f, "bad_source_entry: '%s' may hold a source reference (src:...), a wiki page (wiki/...md) "
+                 "or a journal day (journal/YYYY-MM-DD.md)" % k)
+        for x in entries:
+            if kr.valid_source_entry(x) and not kr.SRC_REF_RE.fullmatch(x) and not (vault / x).is_file():
+                emit("WARN", f, "dead_source: '%s' is not in this repository" % x)
+    if "source_url" in fm:
+        url = fm.get("source_url")
+        if not (gate.link_shape_ok(url) and not gate.link_findings(url)):
+            emit("ERROR", f, "bad_source_url: 'source_url' must be one http(s) link with no key, token or address in it")
     if documented:
         for k in fm:
             if k not in documented and k not in spec["required"] and k not in type_keys.get(t, set()):
