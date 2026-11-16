@@ -1,0 +1,7 @@
+{
+  "name": "hg-probe-panel",
+  "version": "0.1.0",
+  "description": "An optional second step after hg-probe: the smallest pane beside the chat, with one fixed line. It leaves a .hg-probe-panel marker in the working folder for the hg-probe report. It installs nothing and changes nothing outside the working folder.",
+  "author": { "name": "JK-G" },
+  "license": "MIT"
+}

@@ -7,6 +7,16 @@
       "name": "hg",
       "source": "./plugins/hg",
       "description": "A second brain for a person or a department: Claude builds a wiki from your own files, which stay on your computer, shares a page through a check, a preview and your own yes, and keeps approvals that reopen when what they rest on changes."
+    },
+    {
+      "name": "hg-probe",
+      "source": "./plugins/hg-probe",
+      "description": "Run once to tell the owner what your Claude environment can do for hg. It only looks: it installs nothing and writes one report file in your working folder."
+    },
+    {
+      "name": "hg-probe-panel",
+      "source": "./plugins/hg-probe-panel",
+      "description": "An optional second step after hg-probe: it opens a small pane beside the chat with one fixed line and leaves a marker the hg-probe report picks up. Kept apart so a surface that refuses it tells nothing about plugins in general."
     }
   ]
 }

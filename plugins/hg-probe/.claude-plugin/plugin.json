@@ -1,0 +1,7 @@
+{
+  "name": "hg-probe",
+  "version": "0.1.0",
+  "description": "A one-time look at what this Claude environment can do for hg: shell, git, Python, the folder, where the session runs, a startup hook, connectors and scheduled tasks. It also reports the marker of the optional hg-probe-panel plugin. It installs nothing and changes nothing outside the working folder.",
+  "author": { "name": "JK-G" },
+  "license": "MIT"
+}
