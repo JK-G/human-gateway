@@ -214,7 +214,7 @@ Your own files:
 - The scan no longer keeps contact data out of `vault/raw/`: it only counts it. A secret is still refused there, and a file with a secret stays in `intake/`.
 - The check that a private file is not in git runs in `hg-tool publish check` and in CI. A file committed and pushed with plain git, for example after `git add --force` in a person's own terminal, is reported by CI after the push, when it is already on the remote.
 - `git clean -x` or `git stash --all` run by a person deletes their raw files from the folder. The guard stops an agent's Bash command, not a person.
-- The guards on `gates/` and `vault/raw/`, and the rules against `git add --force`, `git clean`, `git stash --all` and `git update-index`, cover the Bash tool and the file tools. They do not cover the PowerShell tool: a PowerShell command that runs one of those git commands, or deletes or rewrites a file there, is not stopped.
+- The guards on `gates/` and `vault/raw/`, and the rules against `git add --force`, `git clean`, `git stash --all` and `git update-index`, cover the Bash tool and the file tools. The PowerShell tool has a coarser guard, which works on the text of a command. It stops a command that names `gates/` or `vault/raw/`, a read included, one that starts `hg-tool` or `bash`, and those four git commands. It does not see a path built from variables, a folder reached with `cd` first, or a script file.
 
 Publishing:
 
@@ -244,8 +244,8 @@ A personal folder:
   by name (OneDrive, Dropbox, Google Drive, iCloud Drive). It cannot see macOS "Desktop and Documents in iCloud", a
   network drive, a virtual machine or a backup agent. What the person writes or pastes in the chat reaches the
   model provider, as in any Claude session.
-- The guard stops an agent's Bash command, not a person in their own terminal and not the PowerShell tool: either
-  can still commit. Doctor reports a personal folder that has a history as an error.
+- The guards stop an agent's Bash or PowerShell command, not a person in their own terminal, who can still
+  commit. The PowerShell guard reads only the text of a command and misses a git call hidden in a script or an alias. Doctor reports a personal folder that has a history as an error.
 - The mode is one key in a file a person can edit. Setup also writes `.gateway/personal`, kept out of git, so a
   folder whose key was changed by hand to shared is still refused by `hg-tool publish` and reported by doctor as an
   error. Deleting that file as well takes the folder past every check: no check finds a name on a page.

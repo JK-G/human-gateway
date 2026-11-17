@@ -21,7 +21,8 @@ it needs.
 - **Only** `hg-tool raw-add`, which `/hg:import-source` runs after recording provenance. It scans the file
   first, refuses a file with a secret, and never overwrites. It refuses when git does not ignore this folder.
 - Everything else is blocked for the Bash tool and the file tools (`forbiddenWritePaths` in `.claude/hg.json`
-  and `permissions.deny` in `.claude/settings.json`). The PowerShell tool is not covered.
+  and `permissions.deny` in `.claude/settings.json`). The PowerShell tool has a
+  coarser guard: it stops a command that names this folder, a read included.
 - **Never edited after capture.** A correction is a new source (a later snapshot, a follow-up meeting),
   and the wiki records the supersession.
 

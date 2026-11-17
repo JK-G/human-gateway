@@ -16,6 +16,12 @@
         ]
       },
       {
+        "matcher": "PowerShell",
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/hg-tool\" guard-ps" }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/hg-tool\" guard-write" }

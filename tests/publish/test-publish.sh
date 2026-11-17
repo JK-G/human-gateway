@@ -861,8 +861,10 @@ payload="{\"tool_input\":{\"command\":\"git commit -m x\"},\"cwd\":$(json_str "$
 printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$W" HG_GUARD_BYPASS=0 hg guard-bash >/dev/null 2>&1; rc=$?
 t '[ $rc -eq 0 ]' "the Bash guard lets git commit through: nothing enforces the rule (a stated limit)" "rc=$rc"
 t 'grep -q "Nothing enforces" "$REPO_ROOT/README.md"' "README says plainly that nothing enforces it"
-out="$(grep -n -E 'guard_powershell|guard-powershell|publish pull|publish push' -r "$PLUGIN" "$REPO_ROOT/README.md" "$REPO_ROOT"/QUICKSTART*.md)"
-t '[ -z "$out" ]' "no PowerShell guard and no publish pull or push" "$out"
+printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$W" HG_GUARD_BYPASS=0 hg guard-ps >/dev/null 2>&1; rc=$?
+t '[ $rc -eq 0 ]' "the PowerShell guard lets git commit through too" "rc=$rc"
+out="$(grep -n -E 'publish pull|publish push' -r "$PLUGIN" "$REPO_ROOT/README.md" "$REPO_ROOT"/QUICKSTART*.md)"
+t '[ -z "$out" ]' "no publish pull or push" "$out"
 
 # --- the tool itself ------------------------------------------------------------------------------------
 out="$(grep -nE '^(from|import) ' "$PLUGIN/tools/publish.py" | grep -vE 'import (datetime|difflib|hashlib|json|os|re|shutil|subprocess|sys|time|unicodedata|gate|kit_registry as kr|raw_ref|scan)( +#.*)?$|from pathlib import Path$')"

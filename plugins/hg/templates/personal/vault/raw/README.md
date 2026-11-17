@@ -18,7 +18,8 @@ raw/<project>/
 ## Who writes here
 
 - **Only** hg's tools. They scan a file first, keep a secret out, and never overwrite.
-- Everything else is blocked for the Bash tool and the file tools. The PowerShell tool is not covered.
+- Everything else is blocked for the Bash tool and the file tools. The PowerShell tool has a coarser
+  guard: it stops a command that names this folder, a read included.
 - **Never edited after capture.** A correction is a new source (a later note, a follow-up meeting), and the wiki
   records the supersession.
 

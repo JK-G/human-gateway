@@ -16,7 +16,7 @@ set -u
 usage() {
   cat >&2 <<'EOF'
 usage: hg-tool <command> [args]
-  guard-write | guard-bash | journal | session-start   hook entry points
+  guard-write | guard-bash | guard-ps | journal | session-start   hook entry points
   dashboard                            refresh DASHBOARD.md (hook, silent)
   today-data                           facts for /hg:today and /hg:dayend, as JSON
   doctor [--root DIR]                  health check of this workspace
@@ -71,7 +71,7 @@ cmd="${1:-help}"
 [ $# -gt 0 ] && shift
 
 case "$cmd" in
-  guard-write|guard-bash|journal|session-start|dashboard) is_hook=1 ;;
+  guard-write|guard-bash|guard-ps|journal|session-start|dashboard) is_hook=1 ;;
   *) is_hook=0 ;;
 esac
 # A personal folder is found without git: everything started from here inherits the variable and never asks git
@@ -148,6 +148,7 @@ fi
 
 case "$cmd" in
   guard-write) exec $HG_PYTHON -S "$TOOLS/guard_write.py" "$@" ;;
+  guard-ps) exec $HG_PYTHON -S "$TOOLS/guard_ps.py" "$@" ;;
   guard-bash)
     set +u
     . "$TOOLS/guard-bash.sh"   # sourced, not run: a second bash start is the slowest part on Windows

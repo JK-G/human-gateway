@@ -322,6 +322,16 @@ done
 grep -qF 'in a personal folder git commands that record or send changes are not run' "$TMP/guard.err" && ok "the guard says why" || bad "the guard says why" "$(cat "$TMP/guard.err")"
 guard "$P" 'git status'; t '[ $? -eq 0 ]' "personal: git status passes"
 guard "$S" 'git commit -m x'; t '[ $? -eq 0 ]' "shared: the guard lets git commit through, as before (a stated limit)"
+psguard() {  # psguard <folder> <command>: the exit code of guard-ps for that PowerShell command
+  local payload; payload="{\"tool_input\":{\"command\":$(json_str "$2")},\"cwd\":$(json_str "$1")}"
+  printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$1" HG_GUARD_BYPASS=0 hg guard-ps >/dev/null 2>"$TMP/guard.err"
+}
+for cmd in 'git commit -m x' 'git push' 'Write-Output a; git remote add origin x'; do
+  psguard "$P" "$cmd"; rc=$?
+  t '[ $rc -eq 2 ]' "personal: the PowerShell guard blocks: $cmd" "rc=$rc $(cat "$TMP/guard.err")"
+done
+psguard "$P" 'git status'; t '[ $? -eq 0 ]' "personal: git status passes in PowerShell"
+psguard "$S" 'git commit -m x'; t '[ $? -eq 0 ]' "shared: the PowerShell guard lets git commit through"
 
 # ===== 15. publish in a personal folder ===================================================================================
 out="$(cd "$P" && CLAUDE_PROJECT_DIR="$P" hg publish check 2>&1)"; rc=$?

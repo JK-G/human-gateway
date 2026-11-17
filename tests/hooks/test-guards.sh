@@ -231,11 +231,58 @@ else
   echo "NOTE: no cygpath, so the Windows 8.3 short-path guard cases did not run"
 fi
 
+# --- guard-ps: the PowerShell tool gets a coarse guard -----------------------------------
+# It works on the text of the command: it stops a command that starts hg-tool or bash, one that names a
+# protected folder (a read too), and the git forms guard-bash stops. git commit and git push pass.
+OUT="$(temp_dir hg-ps-out)"
+ps_case() {  # ps_case <expected-exit> <command> [cwd] [project-dir]
+  local want="$1" cmd="$2" cwd="${3:-$T}" dir="${4:-$T}" got
+  printf '{"tool_name":"PowerShell","tool_input":{"command":%s},"cwd":%s}' "$(json_str "$cmd")" "$(json_str "$cwd")" \
+    | CLAUDE_PROJECT_DIR="$dir" HG_GUARD_BYPASS=0 hg guard-ps >/dev/null 2>"$OUT/ps.err"
+  got=$?
+  [ "$got" = "$want" ] && ok || bad "guard-ps want $want got $got: $cmd"
+}
+grep -q '"matcher": "PowerShell"' "$REPO_ROOT/plugins/hg/hooks/hooks.json" && grep -q 'hg-tool\\" guard-ps' "$REPO_ROOT/plugins/hg/hooks/hooks.json" && ok || bad "hooks.json runs guard-ps for the PowerShell tool"
+ps_case 2 'hg-tool today-data'
+grep -qF 'started with the Bash tool, not the PowerShell tool' "$OUT/ps.err" && ok || bad "guard-ps points to the Bash tool: $(cat "$OUT/ps.err")"
+ps_case 2 'bash -c "ls"'
+ps_case 2 'bash.exe ./x.sh'
+ps_case 2 '& "C:\Program Files\Git\bin\bash.exe" x.sh'
+ps_case 2 'Write-Output a; hg-tool mode'
+ps_case 2 'Get-Content vault\raw\x.md'
+grep -qF "names 'vault/raw/', a protected folder" "$OUT/ps.err" && grep -qF 'use the Read tool' "$OUT/ps.err" && ok || bad "guard-ps names the folder and the Read tool: $(cat "$OUT/ps.err")"
+ps_case 2 'Remove-Item -Recurse -Force vault/raw/acme-notes'
+ps_case 2 'Set-Content -Path "$PWD\code\repo\a" -Value x'
+ps_case 2 'Remove-Item agents\foo\raw\a.txt'
+ps_case 2 'Copy-Item a.md vault\.obsidian\a'
+ps_case 2 'Remove-Item VAULT\RAW\x.md'
+ps_case 2 'git clean -fdx'
+ps_case 2 'git add --force x.md'
+ps_case 2 'git add -f x.md'
+ps_case 2 'git stash --all'
+ps_case 2 'git update-index --assume-unchanged a'
+ps_case 2 'Write-Output a; git clean -xf'
+ps_case 2 '& "C:\Program Files\Git\cmd\git.exe" clean -fdx'
+ps_case 0 'git status'
+ps_case 0 'git commit -m x'
+ps_case 0 'git push'
+ps_case 0 'git stash -u'
+ps_case 0 'git add x.md'
+ps_case 0 'Get-ChildItem vault\wiki'
+ps_case 0 'Get-Content C:\p\bin\hg-tool'
+ps_case 0 'Get-Date'
+ps_case 0 "git -C $OUT clean -fdx"
+ps_case 0 'git clean -fdx' "$OUT"
+printf '{"tool_input":{"command":"hg-tool mode"},"cwd":%s}' "$(json_str "$T")" | CLAUDE_PROJECT_DIR="$T" HG_GUARD_BYPASS=1 hg guard-ps >/dev/null 2>&1 && ok || bad "HG_GUARD_BYPASS=1 lets a PowerShell command through"
+printf 'not json' | CLAUDE_PROJECT_DIR="$T" HG_GUARD_BYPASS=0 hg guard-ps >/dev/null 2>&1 && ok || bad "guard-ps passes a payload it cannot parse"
+rm -rf "$OUT"
+
 # --- silent outside a department repo ---------------------------------------------------
 P="$(temp_dir hg-plain)"
 mkdir -p "$P/vault/raw"; echo x > "$P/vault/raw/x.md"
 write_payload Edit "$P/vault/raw/x.md" "$P" | CLAUDE_PROJECT_DIR="$P" hg guard-write >/dev/null 2>&1 && ok || bad "guard-write must pass without hg.json"
 bash_payload 'rm vault/raw/x.md' "$P" | CLAUDE_PROJECT_DIR="$P" hg guard-bash >/dev/null 2>&1 && ok || bad "guard-bash must pass without hg.json"
+printf '{"tool_input":{"command":"Remove-Item vault/raw/x.md"},"cwd":%s}' "$(json_str "$P")" | CLAUDE_PROJECT_DIR="$P" hg guard-ps >/dev/null 2>&1 && ok || bad "guard-ps must pass without hg.json"
 printf '{}' | CLAUDE_PROJECT_DIR="$P" hg journal >/dev/null 2>&1 && ok || bad "journal must pass without hg.json"
 [ ! -e "$P/vault/journal" ] && ok || bad "journal must not write without hg.json"
 rm -rf "$P"
