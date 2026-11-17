@@ -82,7 +82,7 @@ done
 [ "$(git -C "$W" check-attr eol -- CLAUDE.md | sed 's/.*: //')" = lf ] && ok "eol=lf" || bad "eol=lf"
 
 settings="$(cat "$W/.claude/settings.json")"
-printf '%s' "$settings" | jtrue 'd["permissions"]["allow"]==["Bash(hg-tool *)"]' && ok "settings allow hg-tool" || bad "settings allow hg-tool" "$settings"
+printf '%s' "$settings" | jtrue 'd["permissions"]["allow"]==["Bash(hg-tool *)","Edit(vault/**)","Edit(.gateway/**)"]' && ok "settings allow hg-tool, and writes in vault/ and .gateway/" || bad "settings allow hg-tool, and writes in vault/ and .gateway/" "$settings"
 printf '%s' "$settings" | jtrue 'all(r in d["permissions"]["deny"] for r in ["Edit(vault/raw/**)","Edit(gates/**)","Bash(git push --force*)","Bash(rm -rf ~/)"])' && ok "settings deny the protected paths" || bad "settings deny the protected paths" "$settings"
 printf '%s' "$settings" | jtrue 'all(r in d["permissions"]["deny"] for r in ["Bash(git add -f*)","Bash(git add --f*)","Bash(git add * -f*)","Bash(git add * --f*)","Bash(git clean *)","Bash(git stash -a*)","Bash(git stash --all*)","Bash(git stash * -a*)","Bash(git stash * --all*)","Bash(git update-index *)"])' && ok "settings deny the git forms that leak or delete raw files" || bad "settings deny the git forms that leak or delete raw files" "$settings"
 printf '%s' "$settings" | jtrue 'not any(r.startswith("Write(") for r in d["permissions"]["deny"])' && ok "no Write() deny rules: Claude Code matches file writes against Edit() only" || bad "no Write() deny rules: Claude Code matches file writes against Edit() only" "$settings"

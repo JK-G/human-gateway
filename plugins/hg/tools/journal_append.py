@@ -11,6 +11,10 @@
     correct .gitignore git never lists one; this holds when the .gitignore is broken.
   - Best effort: always exits 0.
   - Touches .claude/state/journal-last-run so /hg:doctor can detect a silent outage.
+  - In a personal folder (solo.py) nothing is ever committed, so git status cannot tell what a session touched.
+    There the signal is the pages under vault/wiki/ and vault/projects/ changed since the last run (by modification
+    time, against journal-last-run, else .claude/hg.json). All count as new, so the line holds a count and no name,
+    and git is not started.
 
 stdin: the SessionEnd hook JSON (session_id, transcript_path, cwd, reason). Any garbage is fine.
 """
@@ -22,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import kit_registry as kr  # noqa: E402
+import solo  # noqa: E402
 
 MAX_SHOWN = 12
 
@@ -49,6 +54,29 @@ def changed_paths(root, journal, conf=None):
     return paths
 
 
+def personal_paths(root, conf):
+    """[(path, True)] for the pages changed since the last run, without git."""
+    marker = root / ".claude" / "state" / "journal-last-run"
+    since_file = marker if marker.exists() else root.joinpath(*kr.CONFIG_PARTS)
+    try:
+        since = since_file.stat().st_mtime
+    except OSError:
+        since = 0.0
+    vault = conf["VAULT_DIR"].strip("/")
+    found = []
+    for folder in ("wiki", "projects"):
+        base = root / vault / folder
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            try:
+                if path.is_file() and path.stat().st_mtime > since:
+                    found.append((path.relative_to(root).as_posix(), True))
+            except OSError:
+                continue
+    return found
+
+
 def run():
     root = kr.kit_root()
     if not root.is_dir():
@@ -62,7 +90,7 @@ def run():
     state.mkdir(parents=True, exist_ok=True)
 
     sid = session_id(sys.stdin.buffer.read(65536).decode("utf-8", "replace"))
-    paths = changed_paths(root, journal, conf)
+    paths = personal_paths(root, conf) if solo.is_personal(root) else changed_paths(root, journal, conf)
     named = [p for p, new in paths if not new]
     fresh = len(paths) - len(named)
     line = "- %s session %s: %d paths" % (now.strftime("%H:%M"), sid, len(paths))

@@ -30,6 +30,12 @@ it there.
 
 Claude Code's permissions.deny on vault/raw/ also stops its own mkdir and mv, which is why this tool exists.
 Exit: 0 ok, 1 refused (a value that is not allowed, or a refused file; nothing moved), 2 usage error.
+
+In a personal folder (solo.py) with no repository of its own, or with no git on this computer, hg can commit
+nothing there, so the rule that git must ignore the destination does not apply and git is not asked.
+
+hg-tool raw-add --check says whether the private folders stay private here: private<TAB>yes, exit 0, or
+private<TAB>no<TAB><path>, exit 1. /hg:init runs it instead of typing git check-ignore -q intake/x itself.
 """
 import datetime
 import os
@@ -114,9 +120,36 @@ def taken(dest):
     return os.path.lexists(str(dest))
 
 
+def git_free(root):
+    """A personal folder with no repository of its own, or no git here: hg can commit nothing in it."""
+    import solo  # imported here: the top-level imports of this file are tested
+    return solo.is_personal(root) and (solo.repo_dir(root) is None or not solo.git_usable())
+
+
+def raw_stays_private(root, rel):
+    if git_free(root):
+        return True
+    return gate.is_ignored(root, rel)  # as before, in both modes
+
+
 def is_tracked(root, rel):
+    if git_free(root):
+        return False
     out = gate.git(root, "ls-files", "--error-unmatch", "--", rel)
     return out is not None and out.returncode == 0
+
+
+def check(root):
+    """private<TAB>yes when intake/, the raw folder and the inbox stay out of git here, else the first that does not."""
+    if not root.joinpath(*kr.CONFIG_PARTS).is_file():
+        raise gate.Refused(".claude/hg.json is missing. Run /hg:setup.")
+    vault = kr.load_conf(root)["VAULT_DIR"].strip("/")
+    for rel in ("intake/x", "%s/raw/x/sources/x.md" % vault, "%s/inbox/x.md" % vault):
+        if not raw_stays_private(root, rel):
+            print("private\tno\t%s" % rel)
+            return 1
+    print("private\tyes")
+    return 0
 
 
 def move_untracked(full, dest):
@@ -153,7 +186,7 @@ def add(root, argv):
     if is_tracked(root, rel):
         raise gate.Refused("%s is tracked by git. A raw source stays out of git: take it out of git first "
                            "(git rm --cached), then bring it in." % rel)
-    if not gate.is_ignored(root, dest_rel):  # a folder with no repository fails this too
+    if not raw_stays_private(root, dest_rel):  # a shared folder with no repository fails this too
         raise gate.Refused("%s/raw/ is not kept out of git in this folder, so a raw file could be committed. "
                            "Run /hg:setup, then try again." % conf["VAULT_DIR"].strip("/"))
 
@@ -186,6 +219,8 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     try:
+        if argv == ["--check"]:
+            return check(kr.kit_root().resolve())
         print(add(kr.kit_root().resolve(), argv))
     except gate.Usage as exc:
         print("raw-add: %s" % exc, file=sys.stderr)

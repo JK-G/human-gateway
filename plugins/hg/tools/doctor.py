@@ -3,6 +3,10 @@
 
 Usage: hg-tool doctor [--root DIR]
 Output: LEVEL<TAB>check<TAB>message, level OK, WARN or ERROR. Exit: 0 no errors, 1 at least one ERROR.
+
+A personal folder (solo.py), and a folder with no .claude/hg.json yet, get the personal check set: a missing git
+is a warning, gh is not looked for, and nothing about the messenger, the scanner copy, the marketplace or gates is
+checked. A personal folder also gets a mode line, and the two nodes it has under their own ids.
 """
 import hashlib
 import json
@@ -15,8 +19,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import kit_registry as kr  # noqa: E402
+import solo  # noqa: E402
 
-REQUIRED_IGNORES = ("vault/daily/", "intake/", "vault/raw/", "vault/inbox/", "DASHBOARD.md", ".gateway/", ".claude/state/", ".claude/settings.local.json")
+REQUIRED_IGNORES = ("vault/daily/", "intake/", "vault/raw/", "vault/inbox/", "DASHBOARD.md", ".gateway/", ".claude/state/",
+                    ".claude/settings.local.json", "CLAUDE.local.md")
+NO_GIT_PERSONAL = "not found. Nothing in this folder needs it today."
 TEMPLATE_SETTINGS = Path(__file__).resolve().parent.parent / "templates" / "workspace" / ".claude" / "settings.json"
 JOURNAL_STALE_DAYS = 14
 
@@ -31,8 +38,14 @@ class Findings:
             self.errors += 1
 
 
-def check_programs(f):
+def check_programs(f, personal=False):
     f.add("OK", "python", "%d.%d" % sys.version_info[:2])
+    if personal:
+        if shutil.which("git"):
+            f.add("OK", "git", "found")
+        else:
+            f.add("WARN", "git", NO_GIT_PERSONAL)
+        return
     for name, level, message in (
             ("git", "ERROR", "not found, every department repo needs it. Run /hg:setup."),
             ("gh", "WARN", "not found. Needed only if git cannot sign in to GitHub by itself: then run /hg:setup.")):
@@ -104,21 +117,25 @@ def check_gitignore(f, root):
         f.add("OK", "gitignore", "personal and generated files are ignored")
 
 
-def check_raw(f, root, conf):
-    """A person's own files: none tracked, vault/raw/ ignored, and how many are here (5.12)."""
+def check_raw(f, root, conf, personal=False):
+    """A person's own files: none tracked, vault/raw/ ignored, and how many are here (5.12). In a personal folder git
+    is asked only when the folder has a repository of its own."""
     import raw_ref  # imported here: only this check needs it
     vault = conf["VAULT_DIR"].strip("/")
+    if personal:
+        if solo.repo_dir(root) is not None and solo.git_usable():
+            check_raw_git(f, root, conf, vault)
+        rows = raw_ref.raw_files(root, conf)
+        cited = raw_ref.cited(root, conf)
+        uncited = sum(1 for ref, _ in rows if not ref or ref not in cited)
+        f.add("OK", "raw", "%d source file(s) in this folder. hg makes no copy of them. %d of them %s no page yet."
+              % (len(rows), uncited, "has" if uncited == 1 else "have"))
+        return
     inside = gate.git(root, "rev-parse", "--is-inside-work-tree")
     if inside is None or inside.returncode != 0:
         f.add("WARN", "raw", "this folder is not a git repository, so whether a raw file is kept out of git was not checked. Run /hg:setup.")
     else:
-        listed = gate.git(root, "ls-files", "-z")
-        tracked = [p for p in (listed.stdout.split("\0") if listed and listed.returncode == 0 else []) if p and kr.is_private(p, conf)]
-        if tracked:
-            f.add("ERROR", "raw", "%d file(s) in a folder that must stay out of git are tracked by git. Tell the person "
-                  "who maintains this repository before anything else is published." % len(tracked))
-        if not gate.is_ignored(root, "%s/raw/x/meetings/x.md" % vault):
-            f.add("ERROR", "raw", "%s/raw/ is not ignored by git here, so a raw file could be committed. Run /hg:setup." % vault)
+        check_raw_git(f, root, conf, vault)
     rows = raw_ref.raw_files(root, conf)
     cited = raw_ref.cited(root, conf)
     here = {ref for ref, _ in rows if ref}
@@ -129,6 +146,33 @@ def check_raw(f, root, conf):
     if away:
         f.add("OK", "raw", "%d reference(s) in tracked pages point to sources that are not on this computer. They stay "
               "with whoever brought them in." % away)
+
+
+def check_raw_git(f, root, conf, vault):
+    listed = gate.git(root, "ls-files", "-z")
+    tracked = [p for p in (listed.stdout.split("\0") if listed and listed.returncode == 0 else []) if p and kr.is_private(p, conf)]
+    if tracked:
+        f.add("ERROR", "raw", "%d file(s) in a folder that must stay out of git are tracked by git. Tell the person "
+              "who maintains this repository before anything else is published." % len(tracked))
+    if not gate.is_ignored(root, "%s/raw/x/meetings/x.md" % vault):
+        f.add("ERROR", "raw", "%s/raw/ is not ignored by git here, so a raw file could be committed. Run /hg:setup." % vault)
+
+
+def check_mode(f, root):
+    """A personal folder: never committed to, and where it lies."""
+    head = None
+    if solo.repo_dir(root) is not None and solo.git_usable():
+        head = gate.git(root, "rev-parse", "-q", "--verify", "HEAD")
+    if head is not None and head.returncode == 0:
+        f.add("ERROR", "mode", "this personal folder holds a change history that hg did not make. Tell whoever set it "
+              "up before anything else.")
+    else:
+        f.add("OK", "mode", "personal: one person's own folder. hg sends nothing from it.")
+    if solo.sync_root(root):
+        f.add("WARN", "place", "this folder lies under a folder this computer copies to a cloud service. hg sends "
+              "nothing, but the files are not only on this computer.")
+    if solo.repo_above(root) is not None:
+        f.add("WARN", "place", "this folder lies inside another folder that has its own change history. hg does not use it.")
 
 
 def check_marketplace(f, root):
@@ -143,9 +187,12 @@ def check_marketplace(f, root):
         f.add("WARN", "marketplace", "no marketplace in .claude/settings.json, so the next person cannot install the plugin from this repo")
 
 
-def check_permissions(f, root):
-    """The template's deny rules, and its ask rule: Claude Code asks the person before hg-tool publish commit runs."""
+def check_permissions(f, root, personal=False):
+    """The template's deny rules, and its ask rule: Claude Code asks the person before hg-tool publish commit runs. A
+    personal folder also asks before its control files change (solo.PERSONAL_ASK)."""
     template = json.loads(TEMPLATE_SETTINGS.read_text(encoding="utf-8"))["permissions"]
+    if personal:
+        template["ask"] = template.get("ask", []) + solo.PERSONAL_ASK
     try:
         have = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8-sig"))["permissions"]
     except (OSError, ValueError, KeyError, TypeError):
@@ -184,11 +231,16 @@ def check_notify(f, root):
         f.add(level, check, message)
 
 
-def check_nodes(f, root):
+def check_nodes(f, root, personal=False):
     """One English line per node other than the messenger (check_notify covers it), then what nodes.* gets wrong.
-    Offline: check_notify already asked gh about the secret, and the messenger's line is not printed here."""
+    Offline: check_notify already asked gh about the secret, and the messenger's line is not printed here. A personal
+    folder's two nodes are printed under their own ids."""
     import nodes  # imported here: only this check needs it
-    for node in nodes.collect(root, online=False, polish=False):
+    if personal:
+        for node in nodes.collect(root, online=False, polish=False, personal=True):
+            f.add("OK", node["id"], node["line"])
+        return
+    for node in nodes.collect(root, online=False, polish=False, personal=False):
         if node["id"] != "messenger":
             f.add("OK", "node", node["line"])
     for message in nodes.warnings(root):
@@ -221,10 +273,22 @@ def main(argv):
     kr.stdio_utf8()
     root = kr.kit_root(argv[1] if len(argv) == 2 and argv[0] == "--root" else None)
     f = Findings()
-    check_programs(f)
+    state = solo.state(root)
+    check_programs(f, personal=state in ("personal", "none"))
     check_git_bash(f)
     conf = check_config(f, root)
-    if conf:
+    if conf and state == "personal":
+        check_mode(f, root)
+        check_layout(f, root, conf)
+        check_raw(f, root, conf, personal=True)
+        check_gitignore(f, root)
+        check_permissions(f, root, personal=True)
+        check_nodes(f, root, personal=True)
+        check_journal(f, root)
+    elif conf:
+        if solo.was_personal(root):
+            f.add("ERROR", "mode", "this folder was set up as personal, but its mode key now says otherwise. Its pages "
+                  "name people and were never cleaned, so hg-tool publish refuses it. Set the mode back to personal.")
         check_layout(f, root, conf)
         check_raw(f, root, conf)
         check_gitignore(f, root)

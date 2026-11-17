@@ -1,24 +1,28 @@
 # Human Gateway
 
-`hg` is a second brain for one person or for a department, as a Claude Code plugin. Claude works from your own context, kept as files you can read: a wiki it builds from your own files, such as conversations, notes and exports. Those files stay on your computer, outside git.
+`hg` is a second brain, as a Claude Code plugin: for one person first, and for a department when it sets up a shared folder. Claude works from your own context, kept as files you can read: a wiki it builds from the notes, links and files you keep with one sentence ("zapisz", "keep this").
 
-When you want to share, a page goes to the department's repository through `/hg:publish`. First an automatic check, then a private preview of exactly what goes out and what was left out, then your own yes. What the department approves is held by gates. A gate names the approved pages and the person who answers for them, and it reopens when a page or an outside source it rests on changes.
+A new folder starts as one person's own. It needs no account anywhere but Claude: no GitHub, no sign-in and no git name or email. hg keeps everything in that folder and sends nothing from it. That sentence covers hg's own tools. A cloud service that copies the folder copies your notes with it, and what you paste in the chat reaches the model provider, as in any Claude session. [Known limits](#known-limits) has the rest.
+
+A department shares through a folder set up as shared from the start (`/hg:setup --shared`). There a page goes to the department's repository through `/hg:publish`. First an automatic check, then a private preview of exactly what goes out and what was left out, then your own yes. What the department approves is held by gates. A gate names the approved pages and the person who answers for them, and it reopens when a page or an outside source it rests on changes. A personal folder cannot be turned into a shared one yet.
 
 That route is a rule Claude is given, not a lock. Plain `git commit` and `git push` still work, for an agent and for a person. What the tools do guarantee is narrower, and [Known limits](#known-limits) says exactly what.
 
 The repository holds only the department's content. Commands, hooks and tools come from the plugin. A gate's outside source can be a task or a board in another system. When an approved page changes, or a source is seen to have changed, the gate shows as `reopened` in `/hg:today`, in `DASHBOARD.md` and at the start of each session. Integrations are nodes you plug in: a messenger (Slack, Microsoft Teams or any JSON webhook), project platforms and a calendar. An agent that works between sessions and a backup of source files are listed as not available yet.
 
-To install it, follow [QUICKSTART.md](QUICKSTART.md) (in Polish). You need Claude Code, git and Python 3.9 or newer, plus Git Bash on Windows. The GitHub CLI signs you in to GitHub. `/hg:setup` and `/hg:doctor` also use it for the messenger: to check that the secret exists, to send a test message and to read how the last run ended. `/hg:setup` offers to install what is missing with winget or Homebrew. It also asks for a git name and email when none is set, because a commit and an approval need them.
+To start, follow [QUICKSTART.md](QUICKSTART.md) (in Polish): its first part is the personal folder, its second part the shared one. A personal folder needs Claude (the Code tab of the desktop app, or Claude Code), Python 3.9 or newer, and on Windows Git for Windows, because the hooks and `hg-tool` run in its bash. On macOS a personal folder works without git. [docs/hg-probe.md](docs/hg-probe.md) (in Polish) is a separate check of what a Claude environment can do, run before hg is installed. A shared folder also needs git and the GitHub CLI, which signs you in to GitHub. `/hg:setup` and `/hg:doctor` also use it for the messenger: to check that the secret exists, to send a test message and to read how the last run ended. `/hg:setup` offers to install what is missing with winget or Homebrew. In a shared folder it also asks for a git name and email when none is set, because a commit and an approval need them.
 
 | Command | What it does |
 |---|---|
-| `/hg:setup` | Checks the computer and creates the workspace. Never overwrites a file. `--update` updates the plugin. `--nodes` lists the nodes and plugs in the ones you choose. |
-| `/hg:init` | Reads `intake/` and pasted links, writes a context map, asks at most 5 questions, drafts wiki pages and gates, then hands over to `/hg:publish`. |
+| `/hg:start` | Sets up this folder as one person's own place for notes (a personal folder) when the person says "zacznij" or "start". It asks one question, what the person works on now, and one more only when the folder already holds files or another place for notes is recorded on this computer. |
+| `/hg:setup` | Checks the computer and creates the workspace. In a folder that is not set up yet it creates a personal folder through `/hg:start`, unless given `--shared`. Never overwrites a file. `--update` updates the plugin. `--nodes` lists the nodes and plugs in the ones you choose. |
+| `/hg:keep` | Keeps a note, a link or a file in one step when the person says "zapisz" or "keep this", and has the page written in the same turn. Also adds a rule for how Claude works with the person, and finishes what was kept with no page yet ("dokończ zapisane"). |
+| `/hg:init` | Reads `intake/` and pasted links, writes a context map, asks at most 5 questions, drafts wiki pages and gates, then hands over to `/hg:publish`. In a personal folder it asks nothing about readers, drafts no gate and hands over to nothing. |
 | `/hg:today`, `/hg:dayend` | Start and end of the day. `/hg:today` also refreshes the marks of the outside sources the session can read. |
 | `/hg:import-source`, `/hg:ingest` | Bring a source into `vault/raw/` on this computer and turn it into wiki pages, also on this computer, through a validated change plan. |
 | `/hg:wiki-query` | Asks the wiki a question. |
-| `/hg:gate` | Creates, lists and approves gates, and adds or removes their outside sources. |
-| `/hg:publish` | Checks what changed, writes a private preview of exactly what goes out and what was left out, and commits on your own yes. `withdraw <page>` takes a published page out. |
+| `/hg:gate` | Creates, lists and approves gates, and adds or removes their outside sources. In a personal folder it says that approvals belong to sharing, which is not available there yet. |
+| `/hg:publish` | Checks what changed, writes a private preview of exactly what goes out and what was left out, and commits on your own yes. `withdraw <page>` takes a published page out. In a personal folder it says, in one sentence, that sharing from a personal folder is not available yet. |
 | `/hg:doctor` | Checks the workspace. |
 
 ## Your own files
@@ -28,6 +32,85 @@ Five folders stay on your computer and outside git: `intake/` (what you drop in 
 A page cites a source by a reference such as `src:meetings:2026-01-15:3fa94c1e`: the kind, the date and 8 hex digits of the file's sha256. It is computed from the file, so no list of references is kept anywhere. On your computer, `hg-tool raw-ref --say <ref>` says where the file is. A colleague who asks where a page comes from is told that the source is private, with its kind and date. They also hear that the file stayed with the person who brought it in, and that the page's change history shows who published the page. No path is shown.
 
 There is no backup and no history of these files. A lost disk loses them; the pages made from them stay.
+
+## A personal folder
+
+A folder is personal when `.claude/hg.json` says `"mode": "personal"`. Any other value, a missing key or a broken
+file means shared, so every folder made before this key existed stays as it was. `hg-tool mode` prints `personal`,
+`shared`, or `none` when the folder has no `.claude/hg.json`. Only `hg-tool setup --personal` writes the key; no
+command changes it afterwards. Sharing from a personal folder is not built: `/hg:publish` and `/hg:gate` answer
+there that it is not available yet.
+
+- `hg-tool setup --personal` creates the folder from `templates/workspace`, with the texts of `templates/personal`
+  in place of the ones that speak of the department, and without `AGENTS.md`, `gates/`, `.github/` (no copies for
+  CI) and the `/setup` skill. `hg.json` gets `"timezone": "local"`, the computer's own clock. It creates
+  `CLAUDE.local.md` for the person's own rules, which the personal `CLAUDE.md` imports.
+- It refuses, and creates nothing, when the folder lies inside another repository, when the folder is a repository
+  of its own with a commit, when the folder holds files and `--here` is not given, when an entry already has a name hg needs (`vault`, `intake`, `CLAUDE.md` and a few
+  others), and when another place for notes is recorded on this computer and `--new` is not given. With `--here`
+  the names already at the top of the folder go into `.git/info/exclude`, never into the tracked `.gitignore`.
+  Without `--root` the folder is the current one, never the top of a repository it lies in.
+- `--focus '<text>'` adds a project named after the person's words. In a shared folder it adds nothing. The run that creates `hg.json` also prints the
+  session rules as `context` lines, because the session-start hook of that first session ran before the file
+  existed.
+- Git is used silently when it is there: `git init` and the ignore rules. Nothing is ever committed. Only the
+  folder's own `.git` counts. Without git a personal folder still works: `vault/raw/` then takes files with no
+  ignore check, because nothing can be committed. In a personal folder `bin/hg-tool` finds the root from the current
+  folder, so the tools start no git to find it; so does a folder with no `.git` at or above it.
+- What a personal folder shows says nothing about sharing: the session rules, `hg-tool today-data` (the keys
+  `gates`, `sources`, `agent_approvals` and `unpublished` are left out), `DASHBOARD.md` (no gates and no activity),
+  `hg-tool nodes` (calendar and backup only), `hg-tool doctor` (no `gh`, messenger, scanner, marketplace or gate
+  checks; a missing git is a warning) and the index. `tests/solo/words.py` holds the word list the tests apply.
+  In a folder with no `.claude/hg.json`, `hg-tool today-data` prints only `"mode": "none"`, the places for notes
+  and the sentence that points to them.
+- In a personal folder `hg-tool publish check`, `commit` and `withdraw` exit 2, and the Bash guard blocks `git`
+  commands that record or send changes (commit, push, pull, merge, rebase, cherry-pick, am, revert, remote).
+- The places for notes on this computer are listed in the file `places` in the plugin's per-machine data folder
+  (`CLAUDE_PLUGIN_DATA`, else `~/.cache/hg`), one path per line, so a second folder set up on the same computer is
+  asked about once.
+
+### Keeping a note
+
+`/hg:keep` works in both modes. The person pastes a note or a link, or names a file, and says "zapisz". The skill
+writes pasted text to `vault/inbox/keep-<name>.md` and runs `hg-tool keep`, which brings it into `vault/raw/`
+through `hg-tool raw-add` (the same scan, the same privacy rule) and prints the sentence to show. Then the librarian
+writes the page in the same turn, and `hg-tool keep --status <ref>` says which page cites the source.
+
+- The tool decides what it may change, from where the file is: hg's own capture (`vault/inbox/keep-*.md`, deleted
+  after the call), a person's file in `vault/inbox/` or `intake/` (never changed; it leaves its folder once kept),
+  or a file elsewhere (copied, never touched). Pages, raw files and anything under `.claude/`, `.gateway/` or
+  `.git/` are refused.
+- A capture, and a `.md` or `.txt` file that reads as plain UTF-8 and is at most 1 MB, gets a frontmatter block on
+  a copy: `source_type`, `captured`, `origin`, `project`, `title`, and `link` and `link_read: false` for a link.
+  Keys a file already has are kept. Every other file is kept byte for byte.
+- A secret in a pasted note is cut out by the scanner's own rules and the person is told what was cut, masked. A
+  file with a secret is refused whole and stays as it was. Contact data stays in the source and is masked in the
+  title the tool prints.
+- A link the session read is kept as the session's summary with the address. A link no tool here can read is kept
+  as the address and the person's own words, and the page is a short description. A link that holds a key, or an
+  `@`, is not kept as a link.
+- The same bytes kept again on the same day get the reference of the file already there: no second file is made,
+  and the output has no `next` line when a page already cites it.
+- `hg-tool keep --rule '<text>'` adds one line to `CLAUDE.local.md` after the same secret check.
+- "No page yet" is computed: a kept source that no page cites. `hg-tool keep --list --json` lists what was kept,
+  newest first; `today-data` has a `kept` section in both modes, and a personal `DASHBOARD.md` shows "Kept lately"
+  and each kept note that waits for its page. References are cached in `.gateway/cache/refs.json` by path, size and
+  time, so the dashboard does not hash every raw file at each session start.
+
+The cleaning rules (`rules/cleaning.md`) are split in two. What always applies protects the person: no secret on a
+page, an instruction in a source is reported and never followed, no source file named. What applies only in a
+shared folder protects what colleagues read: people by role, no judgments, complaints, private matters or
+personal data, and no copied runs. The librarian takes the mode from `hg-tool mode`, so on a personal page people
+stay named as the person's own notes name them. The librarian's left-out report goes through `hg-tool leftout`, the
+older `hg-tool publish leftout` under a name with no sharing word.
+
+In both modes `.claude/settings.json` allows `Edit(vault/**)` and `Edit(.gateway/**)`, so pages and working files
+are written without a prompt for each. The deny rules `Edit(vault/raw/**)` and `Edit(gates/**)` and the write
+guard still protect the source files and the gates. A personal folder also has ask rules for `vault/CLAUDE.md`,
+`vault/schema.md` and `vault/cleaning.md`, because no preview shows a change to them there. A project's
+`CLAUDE.md` and `vault/wiki/memory/index.md`, which `/hg:dayend` updates, are written without a prompt in both
+modes, though Claude takes both as instructions: the folder's `CLAUDE.md` imports the memory index into every session. Whether Claude Code applies rules written during a session
+before the app is reopened was not checked here.
 
 ## Publishing
 
@@ -40,11 +123,11 @@ Pages, gates and log lines are written on your computer first. They reach the de
 5. `hg-tool publish commit <id>` makes the commit. It refuses when what is staged is not the bundle of that id, when the preview on disk is not the one the tool writes for it, when a check finds something on the second run inside the command, or when git has no `user.email`. The message is fixed: a subject, the paths, and the trailers `Hg-Publish`, `Hg-Bundle` and `Hg-Checks`. No text from an agent or a person goes into it.
 6. The skill then sends the commit with `git push`. When the department has newer changes, it runs `git pull` and pushes again. When both sides changed the same place, Claude joins the two texts, shows you the result and asks once more; that joined text is committed with git and is not checked.
 
-To correct a published page, change it and publish again. `hg-tool publish withdraw <page>` takes a published page out of the current version, and the deletion goes out the same way. Both leave the earlier text in the change history. The librarian follows the cleaning rules in the plugin's `rules/cleaning.md`; a department adds its own in `vault/cleaning.md` and its word list in `publish.words`.
+To correct a published page, change it and publish again. `hg-tool publish withdraw <page>` takes a published page out of the current version, and the deletion goes out the same way. Both leave the earlier text in the change history. The librarian follows the cleaning rules in the plugin's `rules/cleaning.md`, all of them in a shared folder; a department adds its own in `vault/cleaning.md` and its word list in `publish.words`.
 
 ## Nodes
 
-A node is one optional integration. There are five: the messenger, project platforms, a calendar, an agent and a backup. `hg-tool nodes` prints one line for each, in the content language, and `hg-tool nodes --json` gives the same list as data. An empty node says what plugging it in would add. `/hg:setup --nodes` shows the list and walks through the nodes you pick, and `/hg:doctor` ends its report with it.
+A node is one optional integration. There are five: the messenger, project platforms, a calendar, an agent and a backup. A personal folder lists only the calendar and the backup. `hg-tool nodes` prints one line for each, in the content language, and `hg-tool nodes --json` gives the same list as data. An empty node says what plugging it in would add. `/hg:setup --nodes` shows the list and walks through the nodes you pick, and `/hg:doctor` ends its report with it.
 
 - The messenger is the department's channel, described below.
 - Project platforms are the systems where tasks and boards live. `hg-tool nodes declare projects clickup,jira` records them. A table of nine platforms (ClickUp, Jira, Asana, Trello, Linear, GitHub, Notion, monday.com, Miro) names the field of an item that is proposed as its mark, and `hg-tool nodes watch <link>` prints it, so `/hg:gate` and `/hg:init` know which field to watch. hg never opens the link: only a session with its own tool for that platform reads it.
@@ -152,6 +235,53 @@ Publishing:
 - A repository that tracks files under `vault/raw/` refuses every publication until they leave the index. `hg-tool setup` takes out the empty `.gitkeep` placeholders an earlier release made. Real raw files are left to whoever maintains the repository: `git rm -r --cached vault/raw` in their own terminal (the guards stop an agent from running it), then `/hg:publish` sends the deletion and the files stay on that computer.
 - Git keeps everything. A withdrawn or corrected page stays in the history and in every clone made before. A secret that went out must be replaced.
 
+A personal folder:
+
+- It has no history and no undo of a page. A source file never changes; a page can be overwritten.
+- The privacy sentence setup prints ("hg keeps everything in this folder and sends it nowhere") says what hg's
+  tools do. It does not promise that the files never leave the computer, and hg does not know where the folder is
+  stored: a folder under a synced folder is copied by that service, and setup says so only for the cases it can see
+  by name (OneDrive, Dropbox, Google Drive, iCloud Drive). It cannot see macOS "Desktop and Documents in iCloud", a
+  network drive, a virtual machine or a backup agent. What the person writes or pastes in the chat reaches the
+  model provider, as in any Claude session.
+- The guard stops an agent's Bash command, not a person in their own terminal and not the PowerShell tool: either
+  can still commit. Doctor reports a personal folder that has a history as an error.
+- The mode is one key in a file a person can edit. Setup also writes `.gateway/personal`, kept out of git, so a
+  folder whose key was changed by hand to shared is still refused by `hg-tool publish` and reported by doctor as an
+  error. Deleting that file as well takes the folder past every check: no check finds a name on a page.
+- `CLAUDE.local.md` is loaded by Claude Code, not by hg. hg creates it, keeps it out of git and imports it from the
+  personal `CLAUDE.md`.
+- The plugin's command list is the same in every folder: typing "/" shows `/hg:publish`, `/hg:gate` and `/hg:setup`
+  in a personal folder too. `.gitignore` and `.gitattributes` are visible in a file manager.
+- Whether a model follows the rules a tool prints mid-session (the `context` lines) as closely as those a hook
+  adds rests on instructions to a model.
+- Pages in a personal folder name people as the person's notes do. There is no route yet from a personal folder to
+  a department: no switch and no cleaning pass. Such pages would need cleaning before any of them is shared. A
+  department today starts a separate folder with `/hg:setup --shared`.
+- Writes under `vault/` and `.gateway/` are not prompted, in either mode. `Edit(vault/**)` and `Edit(.gateway/**)`
+  let Claude write pages, a project's `CLAUDE.md`, `vault/wiki/memory/index.md` and the working files without
+  asking each time, though Claude takes the project's `CLAUDE.md` and the memory index as instructions. A personal folder still
+  asks before `vault/CLAUDE.md`, `vault/schema.md` and `vault/cleaning.md` change. A page overwritten by mistake is
+  not asked about, and in a personal folder no history brings it back. The deny rules for `vault/raw/` and `gates/`
+  still win.
+- How many permission prompts the first session shows in the desktop app, and whether rules written into
+  `.claude/settings.json` during that session apply before the app is reopened, was not checked.
+- On Windows the plugin needs Git for Windows in every mode: the hooks and `hg-tool` run in its bash. Without git
+  (macOS) a personal folder works, but the ignore rules that keep the source files out of git are not proved.
+- A second folder set up on the same computer is asked about once. hg does not merge two places for notes.
+- Nothing reminds the person. hg acts only when they write in the folder: the next day starts with "co mam dziś"
+  or the file `DASHBOARD.md`.
+- A secret is cut from a pasted note by pattern before the note is stored; a secret in an unknown format stays in
+  the source. The pasted text has already reached the model provider by then.
+- A file kept from outside hg's folders is copied; the original stays where it was and hg does not follow it.
+- Office files, PDFs, images and files over 1 MB get a page with a short description only. Text files that are not
+  `.md` or `.txt`, or not UTF-8, are kept as they are, with no title stored in them.
+- A link no tool of the session can read is kept as an address. Nothing watches it yet. A link with `@` is not
+  stored as a link.
+- The page comes after the confirmation and can take minutes. A page that was not written shows as "no page yet"
+  until the person asks to finish what was kept.
+- Which command the librarian types, and which cleaning rules it applies, rest on instructions to a model.
+
 Scanner (`hg-tool scan`):
 
 - It matches patterns: known token formats, values assigned to names like `password`, email addresses, phone numbers, IBANs and long runs of digits. A secret in an unknown format passes. A company can add its own under `scan.patterns`.
@@ -176,6 +306,10 @@ bash tests/run-all.sh --verbose  # print each test's output
 `tests/notify/test-notify.sh` covers the messenger: which gates started to wait in a push, the morning list, the templates and their cleaning, the three channels and their payloads, the secret, the copies CI uses and the workflow. It never touches the network.
 
 `tests/nodes/test-nodes.sh` covers `hg-tool nodes`: the five nodes and their states, declaring them, what the department's repository holds (a bare remote in a temp folder), the secret through a stub of `gh`, recorded readings, the platform table and `watch`. It never touches the network.
+
+`tests/solo/test-solo-mode.sh` covers a personal folder: the mode, `hg-tool setup --personal` and its refusals, the session rules, what each surface shows there, the word list, the paths with no git, the guard, and the two allow rules with the deny rules still in force.
+
+`tests/solo/test-solo-keep.sh` covers `hg-tool keep`: the three kinds of file, a secret cut from a note and a file with one refused, links, other files, `--status`, `--list` and its cache, `--rule`, the kept section of `today-data` and `DASHBOARD.md`, the word list, and the split of the cleaning rules.
 
 `tests/publish/test-publish.sh` covers `hg-tool publish`: staging, the bundle and its id, every check and the settings they read, the preview word for word, left-out reports, the commit and its message, withdrawing a page, the rule copied into the skills, and the stated limit that nothing blocks `git commit`.
 

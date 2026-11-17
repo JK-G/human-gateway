@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hook_env.py - read the guard-bash hook payload and print shell assignments for it.
 
-Prints CMD, CWD, ROOT_NATIVE, FORBIDDEN_WRITE_PATHS, VAULT_DIR and PRIVATE_PATHS, each quoted with shlex, for guard-bash.sh
+Prints CMD, CWD, ROOT_NATIVE, FORBIDDEN_WRITE_PATHS, VAULT_DIR, PRIVATE_PATHS and HG_MODE, each quoted with shlex, for guard-bash.sh
 to eval. Values are data from the payload and .claude/hg.json; nothing from the repo runs as code.
 An unreadable payload leaves CMD empty, and guard-bash then fails open.
 """
@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import kit_registry as kr  # noqa: E402
+import solo  # noqa: E402
 
 
 def main():
@@ -26,7 +27,7 @@ def main():
     conf = kr.load_conf(root)
     pairs = [("CMD", command), ("CWD", cwd), ("ROOT_NATIVE", str(root)),
              ("FORBIDDEN_WRITE_PATHS", conf["FORBIDDEN_WRITE_PATHS"]), ("VAULT_DIR", conf["VAULT_DIR"]),
-             ("PRIVATE_PATHS", " ".join(kr.private_prefixes(conf)))]
+             ("PRIVATE_PATHS", " ".join(kr.private_prefixes(conf))), ("HG_MODE", solo.mode(root))]
     text = "".join("%s=%s\n" % (name, shlex.quote(value)) for name, value in pairs)
     sys.stdout.buffer.write(text.encode("utf-8", "replace"))  # a lone surrogate becomes ?, never an empty CMD
     return 0

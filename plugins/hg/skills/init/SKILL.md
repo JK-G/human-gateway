@@ -23,12 +23,18 @@ ask only about conflicts and gaps. The person has little time and may not be tec
   `projects` keys of `.claude/hg.json`. Do not commit: step 6 ends at `/hg:publish`. Before any commit in a
   department repository, run hg-tool publish check, show the person the preview it writes, and commit only through
   the commit step of /hg:publish, after the person's own yes in this session.
+- **A personal folder.** First run `hg-tool mode`. When it prints `personal`, the folder is one person's own and
+  nothing in it is sent. Read `intake/` and the links as below, but skip three parts: do not ask who may read
+  (step 5), draft no gate (step 6), and do not start `hg:publish` (step 6). End by saying what was brought in and how
+  many questions stay open. Say nothing about sending, publishing or other people.
 
 ## 1. Find the sources
 
-First check that `intake/` and `vault/raw/` are private: run `git check-ignore -q intake/x` and
-`git check-ignore -q vault/raw/x/sources/x.md`. If either exits with anything but 0, a person's own files could
-reach git. Stop, tell the person, and point them to `/hg:setup`.
+First check that `intake/` and `vault/raw/` are private: run `hg-tool raw-add --check`. Where git is used it runs
+`git check-ignore -q intake/x`, `git check-ignore -q vault/raw/x/sources/x.md` and the same for the inbox, so no
+git command is typed here. If it
+exits with anything but 0, a person's own files could reach git. Stop, tell the person, and point them to
+`/hg:setup`.
 
 1. **Project.** Run `hg-tool registry projects`. Use the slug named in `$ARGUMENTS`, or the only project
    listed. With several and none named, ask which one: that counts as one of the five questions in step 5.
@@ -44,7 +50,7 @@ reach git. Stop, tell the person, and point them to `/hg:setup`.
 
 | Scan result for a file | What happens to it |
 |---|---|
-| No finding, or `pii` (contact data) | The reader opens it, then it goes through `/hg:import-source` into `vault/raw/`, which stays on this computer. A page made from it writes people as roles and carries no contact detail. |
+| No finding, or `pii` (contact data) | The reader opens it, then it goes through `/hg:import-source` into `vault/raw/`, which stays on this computer. A page made from it follows the cleaning rules for this folder's mode (in a shared folder: people as roles, no contact detail). |
 | `filetype` with `link only` (spreadsheets, Word, slides, design files) | The reader opens what it can. It goes into `vault/raw/` too and gets a stub page, with `source_url` when the person gave a link to the original. |
 | Listed under `not_read` (a PDF, an image, other binary files) | The scan could not check it, so this is not "no finding". The reader opens what it can and reports a secret if it sees one. With none reported it goes through `/hg:import-source`. |
 | `secret`, or `filetype` with `secret file` | Only a secret holds a file in `intake/`: nobody opens it and it stays out of `vault/raw/`. Report it. |
@@ -104,7 +110,8 @@ nobody answered.
   reach every colleague's session. Show the quote to the person in the chat only. Files held in `intake/` appear
   as a count and a reason, never by name.
 - Keep the headings `## Open` and `## Findings` as written, because tools read them. The rest follows
-  `language.content`. Write people as roles. Never write out a value the scan masked.
+  `language.content`. Write people as the cleaning rules for this folder's mode say (as roles in a shared
+  folder). Never write out a value the scan masked.
 
 Then run `hg-tool scan vault/projects/<slug>/context-map.md` and fix the map until it is clean.
 

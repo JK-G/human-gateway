@@ -99,7 +99,7 @@ types:
 | Type | Use it for | Default `temporal` | Type-specific keys |
 |---|---|---|---|
 | `concept` | An idea, feature, mechanism, policy or pattern. The workhorse type. | living | none |
-| `entity` | A named thing: competitor, organization, tool, team role, segment. People appear by role only. | living | `kind`: `organization`, `competitor`, `tool`, `role`, `segment`, `other` |
+| `entity` | A named thing: competitor, organization, tool, team role, segment. People appear as the cleaning rules for this folder's mode say: by role in a shared folder. | living | `kind`: `organization`, `competitor`, `tool`, `role`, `segment`, `other` |
 | `decision` | One decision with context, options, rationale and a review date. | **snapshot** | `decided`: `YYYY-MM-DD` |
 | `source-summary` | A summary per raw source, and also the page for a summary of an outside link. A stub for a binary or large source. | snapshot | `source_raw` (a source reference), `extraction`: `unextracted`, `partial`, `extracted`, `obsolete`; optional `source_url` (one `http(s)` link), `extracted_to: []` |
 | `research` | A discrete finding with evidence (analysis, benchmark, survey result). | living | none |
@@ -144,8 +144,8 @@ The wiki links TO a PRD; it never restates or supersedes it.
 - Binary (pdf, docx, xlsx, images) or over ~1 MB: create a `source-summary` stub only, with
   `extraction: unextracted`. Extraction into typed pages is a later, explicit step.
 - Raw frontmatter `pii: true` (contracts, customer exports, legal text with personal data): the stub stays
-  `unextracted` for good. Names of people alone do not force a stub: the page writes people as roles and leaves
-  out their contact details. Raw files never enter git.
+  `unextracted` for good. Names of people alone do not force a stub: the cleaning rules for this folder's mode say
+  what of them reaches a page (in a shared folder, people as roles and no contact detail). Raw files never enter git.
 
 ## One fact, one page
 

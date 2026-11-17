@@ -1,6 +1,10 @@
 # Szybki start dla kolejnej osoby w dziale
 
-Po tych krokach masz drugi mózg: wiedzę działu u siebie i własne pliki, z których Claude buduje wiki. Twoje pliki zostają na Twoim komputerze, a strony powstają najpierw tylko u Ciebie. Do działu wysyłasz je przez publikację: Claude sprawdzi zmiany, pokaże podgląd tego, co wyjdzie i co pominął, i zapyta o Twoją zgodę. Zatwierdzenia, czyli bramki, otwierają się ponownie, gdy zmieni się to, na czym się opierają.
+Ta instrukcja jest dla Ciebie, jeśli Twój dział ma już wspólny folder z wiki i do niego dołączasz. Jeśli na razie chcesz prowadzić własne notatki, tylko dla siebie, idź za [QUICKSTART.md](QUICKSTART.md): wystarczy tam konto Claude.
+
+Po tych krokach masz u siebie wiedzę działu i własne notatki, z których Claude robi strony. Twoje pliki źródłowe zostają na Twoim komputerze. Notatki działają tu tak samo jak w folderze tylko dla siebie: wklejasz notatkę i piszesz „zapisz”, pytasz „co wiemy o…”, a rano piszesz „co mam dziś”.
+
+## Czego potrzebujesz
 
 Instalujesz jedną aplikację, wklejasz jedną wiadomość i wpisujesz kilka krótkich poleceń, o które Claude sam poprosi. Osobny terminal nie jest potrzebny.
 
@@ -55,10 +59,13 @@ Jeśli na koniec Claude zaproponuje opublikowanie plików przestrzeni albo zało
 
 ## Na co dzień
 
+Strony powstają najpierw tylko u Ciebie. Do działu wysyłasz je przez publikację: Claude sprawdzi zmiany, pokaże podgląd tego, co wyjdzie i co pominął, i zapyta o Twoją zgodę. Zatwierdzenia, czyli bramki, otwierają się ponownie, gdy zmieni się to, na czym się opierają.
+
 Piszesz po polsku, czego chcesz.
 
 | Napisz na przykład | Co zrobi Claude |
 |---|---|
+| `zapisz`, z notatką albo linkiem | Zapisze notatkę u Ciebie i zrobi z niej stronę. Dział zobaczy tę stronę dopiero po publikacji. |
 | `co mam dziś` | Pokaże, co czeka na Ciebie i co zostało z ostatniej notatki, a potem zapyta, na czym chcesz się skupić. |
 | `co wiemy o cenach` | Odpowie na podstawie wiki działu. Gdy odpowiedź wnosi coś nowego, zapyta, czy zapisać ją w wiki. |
 | `kończę na dziś` | Podsumuje dzień i przygotuje notatkę na kolejny dzień pracy. |

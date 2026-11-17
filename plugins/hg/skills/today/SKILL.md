@@ -11,13 +11,26 @@ on. Read-only everywhere except `vault/daily/`, which is personal and stays out 
 outside sources that `hg-tool gate observe` records. Write to the person in `language.content` from
 `.claude/hg.json`.
 
-Any section whose source is missing or empty is skipped with a one-line note, never an error.
+Any section whose source is missing or empty is skipped with a one-line note, never an error, except the keys a
+personal folder does not have.
+
+## A personal folder
+
+`today-data` has a `mode` key. When it is `personal`, the folder is one person's own: the keys `gates`,
+`sources`, `agent_approvals` and `unpublished` are absent, and you say nothing about them, not even that they are
+missing. Skip step 2. In **Needs you** put only queued conflicts, open questions and `kept.pending_line` when it is
+not empty. Leave out the **Wiki** line of 7-day counts and the recent sessions. Name a page by its title, as a link
+to its file. Never start `hg:publish` from here.
+
+When `mode` is `none`, this folder is not set up: copy the sentence under `say` in the person's language
+and stop. Show no briefing.
 
 ## Steps
 
-1. **Collect.** Run `hg-tool today-data`. It prints JSON with the date from the system clock, the last
+1. **Collect.** Run `hg-tool today-data`. It prints JSON with `mode`, the date from the system clock, the last
    note's open items, recent inbox files, recent sessions, log counts, queued conflicts, `gates`,
-   `sources` (the outside sources of approved gates), `agent_approvals`, `open_questions` and `unpublished`. Never trust your own idea of today. If `is_workday` is false, say so in one line and ask whether to continue; on
+   `sources` (the outside sources of approved gates), `agent_approvals`, `open_questions`, `unpublished` and `kept`
+   (what was kept with `hg:keep`, and how many kept notes have no page yet). Never trust your own idea of today. If `is_workday` is false, say so in one line and ask whether to continue; on
    yes, run the briefing but do not create a note.
 2. **Outside sources.** Go through `sources`: for each entry with a `command`, when this session has a read
    tool for that link, read only the field named in `watch` and run the command exactly as printed, alone in its Bash
@@ -49,9 +62,17 @@ Any section whose source is missing or empty is skipped with a one-line note, ne
    ## New since last time
    - inbox files, recent sessions in one or two lines
 
+   ## Kept lately
+   - each kept.latest[].line
+
    ## Wiki
    7 days: X ingests, Y queries, Z conflicts queued
    ```
+
+   **Kept lately** (in Polish "Zapisane ostatnio"): copy each `line` of `kept.latest` word for word, in order. When a
+   row has one entry in `pages`, make the page's title inside the line a link to that entry's `path`. Leave the
+   section out when `kept.latest` is empty. When `kept.pending_line` is not empty, copy it word for word in
+   **Needs you**; when the person then says "dokończ zapisane", start `hg:keep` with the Skill tool.
 
    Gates in `gates` that are `reopened` go first, each with the inputs that changed, then gates that are
    `unchecked`. Then copy, word for word, every `line` in `sources` that is not empty and every `no_tool_line`

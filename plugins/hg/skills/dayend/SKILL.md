@@ -10,6 +10,15 @@ Close the working day: summarize what happened, keep shared knowledge current, a
 workday. Shared files change only after the person confirms. Write to the person in `language.content`
 from `.claude/hg.json`.
 
+## A personal folder
+
+`today-data` has a `mode` key. When it is `personal`, the folder is one person's own and nothing in it is sent:
+run steps 1 to 5, and skip step 6, because `unpublished` is absent. Say nothing about shared files, about other
+people seeing anything, or about sending. Name a page by its title, as a link to its file.
+
+When `mode` is `none`, this folder is not set up: copy the sentence under `say` in the person's language
+and stop.
+
 ## Steps
 
 1. **Date.** Run `hg-tool today-data` and use `date` and `next_workday`. Never trust your own idea of today.
@@ -29,7 +38,7 @@ from `.claude/hg.json`.
    ask for confirmation. Apply only what the person approves. Never edit `snapshot` pages, PRDs or
    `vault/journal/`.
    When something from the session was deliberately not recorded, write a left-out report with `op: "dayend"`
-   to `.gateway/leftout/draft.json` and run `hg-tool publish leftout .gateway/leftout/draft.json`, as
+   to `.gateway/leftout/draft.json` and run `hg-tool leftout .gateway/leftout/draft.json`, as
    `${CLAUDE_PLUGIN_ROOT}/rules/cleaning.md` describes. With nothing left out, write none.
 4. **Update today's note.** In `vault/daily/YYYY-MM-DD.md`: tick finished items and add Done, Context
    updated and Tomorrow under `## End of day`.
@@ -38,7 +47,7 @@ from `.claude/hg.json`.
 6. **Changes not shared yet.** Run `hg-tool today-data` and copy `unpublished.line` word for word when it is not
    empty. Say that colleagues and the department's channel see an approval, a check of an outside source or a
    journal line only after it is published, and start `hg:publish` with the Skill tool. Its question is the one
-   question; do not ask a second one. When `unpublished.line` is empty, skip this step.
+   question; do not ask a second one. When `unpublished.line` is empty, or `unpublished` is absent, skip this step.
 
 ## Rules
 

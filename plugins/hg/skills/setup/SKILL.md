@@ -15,6 +15,20 @@ Before any commit in a department repository, run hg-tool publish check, show th
 and commit only through the commit step of /hg:publish, after the person's own yes in this session. This skill
 commits nothing itself.
 
+## A personal folder, or no folder yet
+
+First run `hg-tool mode`. It prints `personal`, `shared`, or `none` when this folder is not set up yet.
+
+- `none`, and `$ARGUMENTS` does not contain `--shared`: run steps 1 and 2 only, with no `gh` row (the doctor
+  prints no `gh` line here), then follow the `hg:start` skill: start it with the Skill tool. Then stop.
+- `personal`: run steps 1 and 2 with no `gh` row, then `hg-tool setup`, then `hg-tool doctor`, say in plain words
+  what is still broken, and stop. With `--update` run **Update**: in a personal folder item 4 only adds
+  missing `.gitignore` lines, so report no file to publish and do not start `hg:publish`.
+- `shared`, or `none` with `--shared`: every step below, as written.
+
+Steps 3 and 6 to 8, and the `gh` row of step 2, run only in a shared folder. In a personal folder never mention
+GitHub, signing in, a git name or email, or the department.
+
 ## 1. Check the computer
 
 Run `hg-tool doctor` and read the `python`, `git`, `gh` and `git-bash` lines. On a folder that is not set up

@@ -20,6 +20,10 @@ __pycache__/
 .claude/state/
 .claude/settings.local.json
 
+# A person's own instructions and skills
+CLAUDE.local.md
+.claude/skills/my-*/
+
 # Obsidian settings differ per device
 vault/.obsidian/
 

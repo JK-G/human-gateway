@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate as gate_tool  # noqa: E402
 import kit_registry as kr  # noqa: E402
+import solo  # noqa: E402
 import today_data  # noqa: E402
 
 ACTIVITY_DAYS = 14
@@ -34,6 +35,8 @@ TEXT = {
         "source_removed": "outside source removed", "source_replaced": "outside source now points elsewhere",
         "source_invalid": "not a valid outside source", "source_unchecked": "no check of the outside source recorded yet",
         "source_stale": "last recorded check %d days ago",
+        "kept": "Kept lately", "no_kept": 'Nothing kept yet. Paste a note in the chat and write "keep this".',
+        "pending": "A kept note waits for its page",
     },
     "pl": {
         "generated": "Plik generowany przez hg. Nie edytuj go: kolejne odświeżenie go zastąpi.", "waits": "Czeka na Ciebie",
@@ -52,6 +55,8 @@ TEXT = {
         "source_invalid": "błędny wpis źródła zewnętrznego",
         "source_unchecked": "brak zapisanego sprawdzenia źródła zewnętrznego",
         "source_stale": "ostatnie zapisane sprawdzenie %d dni temu",
+        "kept": "Zapisane ostatnio", "no_kept": "Nic jeszcze nie zapisano. Wklej notatkę w rozmowie i napisz „zapisz”.",
+        "pending": "Notatka czeka na stronę",
     },
 }
 
@@ -74,9 +79,14 @@ def changes(items, t):
     return ", ".join("`%s` (%s)" % (c["path"], reason(c, t)) for c in items)
 
 
+def link_words(title):
+    """Escaped, a title stays the words of one link and cannot close it or add its own."""
+    return re.sub(r"([\\\[\]()<>])", r"\\\1", one_line(title))
+
+
 def gate_link(gate_id, title):
-    """The title is committed text: escaped, it stays the words of one link and cannot close it or add its own."""
-    return "[%s](gates/%s.md)" % (re.sub(r"([\\\[\]()<>])", r"\\\1", one_line(title)), gate_id)
+    """The title is committed text."""
+    return "[%s](gates/%s.md)" % (link_words(title), gate_id)
 
 
 def waits(data, t):
@@ -123,12 +133,41 @@ def activity_lines(root, conf, today, t):
     return [t["sessions"], ""] + lines if lines else [t["no_activity"]]
 
 
+def kept_rows(data):
+    return (data.get("kept") or {}).get("latest") or []
+
+
+def personal_waits(data, t):
+    """A personal folder has no gates and no approvals: what waits is a kept note with no page, then its open
+    questions."""
+    lines = ["- %s: %s" % (t["pending"], one_line(r["title"])) for r in kept_rows(data) if r["state"] == "pending"]
+    lines += ["- %s (%s): %s" % (t["question"], q["project"], one_line(q["text"])) for q in data["open_questions"]]
+    return lines or [t["nothing"]]
+
+
+def kept_lines(data, t):
+    """A kept note with one page is a link whose words are the page's heading; else the line today-data made."""
+    lines = []
+    for r in kept_rows(data):
+        if len(r["pages"]) == 1:
+            page = r["pages"][0]
+            lines.append("- %s: [%s](%s)" % (r["date"], link_words(page["title"]), page["path"].replace(" ", "%20")))
+        else:
+            lines.append("- %s" % one_line(r["line"]))
+    return lines or [t["no_kept"]]
+
+
 def render(root, conf, data):
     t = TEXT["pl" if gate_tool.is_polish(conf) else "en"]
     parts = ["# %s" % one_line(conf["KIT_PROJECT_NAME"]), "", "_%s_" % t["generated"]]
-    sections = ((t["waits"], waits(data, t)), (t["gates"], gates_table(data, t)),
-                (t["projects"], project_lines(root, conf, t)),
-                (t["activity"], activity_lines(root, conf, data["date"], t)))
+    if data.get("mode") == "personal":
+        # No gates and no activity: a count of one person's sessions per day brings that person nothing.
+        sections = ((t["waits"], personal_waits(data, t)), (t["kept"], kept_lines(data, t)),
+                    (t["projects"], project_lines(root, conf, t)))
+    else:
+        sections = ((t["waits"], waits(data, t)), (t["gates"], gates_table(data, t)),
+                    (t["projects"], project_lines(root, conf, t)),
+                    (t["activity"], activity_lines(root, conf, data["date"], t)))
     for heading, lines in sections:
         parts += ["", "## %s" % heading, ""] + lines
     return "\n".join(parts) + "\n"
@@ -137,7 +176,8 @@ def render(root, conf, data):
 def refresh():
     root = kr.kit_root().resolve()
     conf = kr.load_conf(root)
-    text = render(root, conf, today_data.collect(root))
+    shared = not solo.is_personal(root)  # the shared dashboard does not show what was kept, so it is not computed
+    text = render(root, conf, today_data.collect(root, skip=("kept",) if shared else ()))
     target = root / "DASHBOARD.md"
     if target.is_file() and target.read_bytes() == text.encode("utf-8"):
         return

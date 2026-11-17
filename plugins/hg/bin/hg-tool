@@ -24,6 +24,9 @@ usage: hg-tool <command> [args]
                                        create the department workspace; never overwrites a file
   setup [--root DIR] --refresh-ci      replace the tools CI copies in .github/hg/, add a missing workflow
                                        (--refresh-scan is another name for it)
+  setup --personal [--language L|auto] [--name N] [--focus TEXT] [--here] [--new] [--root DIR]
+                                       create one person's own folder: nothing is committed or sent from it
+  mode                                 personal, shared, or none when .claude/hg.json is missing
   scan [--json] [--git] [--config FILE] [PATH ...]
                                        find secrets, personal data and files that stay links
   log --op <op> --agent <id> [...]     append to the event log
@@ -42,8 +45,13 @@ usage: hg-tool <command> [args]
                                        bring one file into vault/raw/ on this computer; never overwrites
   raw-ref <path> | --find REF | --say REF | --list [--json]
                                        the source reference of a raw file, and back
+  keep <file> [--title T] [--link URL [--unread]] [--kind K] [--project P] [--date YYYY-MM-DD]
+                                       keep a note, a link or a file in vault/raw/ in one step
+  keep --link URL [--title T] | --rule TEXT | --status REF | --list [--json] [--days N]
+                                       keep an address, add a rule for Claude, ask for the page, list what was kept
+  leftout <file.json>                  store the list of what a model left out of the pages it wrote
   publish check [--json] [PATH ...]    stage, check and preview what a commit would carry out of this computer
-  publish leftout <file.json>          store the list of what a model left out of the pages it wrote
+  publish leftout <file.json>          the older name of leftout
   publish commit <id>                  commit the bundle the preview showed (Claude Code asks first when the ask rule is in settings.json)
   publish withdraw <page>              remove a published wiki page from the current version
   registry [--root DIR] <subcommand>   projects, types, frontmatter, dump
@@ -66,6 +74,25 @@ case "$cmd" in
   guard-write|guard-bash|journal|session-start|dashboard) is_hook=1 ;;
   *) is_hook=0 ;;
 esac
+# A personal folder is found without git: everything started from here inherits the variable and never asks git
+# for the root. A text match only chooses the folder; solo.py reads the file properly. A folder with no .git at or
+# above it is in no repository, so git would only answer with the current folder: it is not asked either (on a Mac
+# without the developer tools, asking it opens an install dialog).
+in_repo() {
+  local d="$PWD"
+  while :; do
+    [ -e "$d/.git" ] && return 0
+    [ -z "$d" ] && return 1
+    d="${d%/*}"
+  done
+}
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+  if [ -f "$PWD/.claude/hg.json" ] && grep -q '"mode"[[:space:]]*:[[:space:]]*"personal"' "$PWD/.claude/hg.json" 2>/dev/null; then
+    export CLAUDE_PROJECT_DIR="$PWD"
+  elif [ -z "${GIT_DIR:-}" ] && ! in_repo; then
+    export CLAUDE_PROJECT_DIR="$PWD"
+  fi
+fi
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 if [ "$is_hook" = 1 ] && [ ! -f "$ROOT/.claude/hg.json" ]; then
   exit 0
@@ -99,7 +126,9 @@ detect_python() {
   return 1
 }
 
-cache="${CLAUDE_PLUGIN_DATA:-${HOME:-.}/.cache/hg}/python-cmd"
+# The plugin's per-machine data folder: the Python command and the list of places for notes (solo.py).
+export HG_DATA="${CLAUDE_PLUGIN_DATA:-${HOME:-.}/.cache/hg}"
+cache="$HG_DATA/python-cmd"
 if [ -z "${HG_PYTHON:-}" ] && [ -r "$cache" ]; then
   IFS= read -r HG_PYTHON < "$cache" || HG_PYTHON=""
 fi
@@ -181,6 +210,18 @@ case "$cmd" in
     export MSYS2_ARG_CONV_EXCL='*'
     exec $HG_PYTHON "$TOOLS/publish.py" "$@"
     ;;
+  keep)
+    # The file may be D:\x, D:/x or /d/x, and --title, --link and --rule are free text.
+    export MSYS2_ARG_CONV_EXCL='*'
+    exec $HG_PYTHON "$TOOLS/keep.py" "$@"
+    ;;
+  leftout)
+    # The same as publish leftout, under a name a person may see in a prompt. Its messages start with hg:.
+    export MSYS2_ARG_CONV_EXCL='*'
+    export HG_NEUTRAL=1
+    exec $HG_PYTHON "$TOOLS/publish.py" leftout "$@"
+    ;;
+  mode) exec $HG_PYTHON "$TOOLS/solo.py" mode ;;
   conf) exec $HG_PYTHON "$TOOLS/kit_registry.py" conf "$@" ;;
   registry) exec $HG_PYTHON "$TOOLS/kit_registry.py" "$@" ;;
   canonicalize) exec $HG_PYTHON "$TOOLS/canonicalize.py" "$@" ;;

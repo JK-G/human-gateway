@@ -17,6 +17,17 @@ is the point of the wiki.
 | `/hg:wiki-query "<question>"` | Answer, then file back if the routing table says so and the person agrees. |
 | `/hg:wiki-query "<question>" --no-file` | Chat-only answer. No wiki page is written. |
 
+## A personal folder
+
+First run `hg-tool mode`. When it prints `personal`, the folder is one person's own: name a page by its title, as
+a link to its file, not as `[[...]]`; in step 4 ask the question below instead of naming the department, and never
+start `hg:publish`. When it prints `none`, this folder is not set up: run `hg-tool today-data`, copy the sentence
+under `say` in the person's language and stop.
+
+| | Polish | English |
+|---|---|---|
+| W2 | Zapisać tę odpowiedź jako stronę? | Save this answer as a page? |
+
 ## Steps
 
 1. **Search.** Detect the project (CWD inside `vault/projects/<slug>/`, else a slug named in the

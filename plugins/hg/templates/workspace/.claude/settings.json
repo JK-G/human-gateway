@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(hg-tool *)"
+      "Bash(hg-tool *)",
+      "Edit(vault/**)",
+      "Edit(.gateway/**)"
     ],
     "ask": [
       "Bash(hg-tool publish commit *)"

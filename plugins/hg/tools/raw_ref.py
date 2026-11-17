@@ -12,6 +12,8 @@ name and the first 8 hex digits of the sha256 of its bytes. Raw files never chan
 computed from the file and never stored, so a vault/raw/ folder copied to another computer resolves again.
 A reference is not a path and never resolves in a colleague's clone.
 
+In a personal folder (solo.py) --say names no repository: the file is on this computer, or it is gone.
+
 --list prints paths. Its output is for the person's own session and never goes into a tracked file.
 "cited" means a file under vault/wiki/ or vault/projects/ holds the reference as text.
 Exit: 0 printed (--say also when the file is not here: the sentence says so), 1 refused, 2 usage error.
@@ -38,6 +40,11 @@ SAY_AWAY = ("Źródło prywatne ({kind}, {date}). Pliku nie ma w repozytorium an
             "która go wniosła. Kto opublikował stronę, pokazuje historia zmian tej strony.",
             "Private source ({kind}, {date}). The file is not in the repository and not on this computer. It stayed "
             "with the person who brought it in. The page's change history shows who published the page.")
+# A personal folder has no repository to compare with: the file is here or it is gone (solo.py).
+SAY_PERSONAL_HERE = ("Źródło: {kind}, {date}. Plik jest na tym komputerze: {path}.",
+                     "Source: {kind}, {date}. The file is on this computer: {path}.")
+SAY_PERSONAL_AWAY = ("Źródło: {kind}, {date}. Pliku nie ma już na tym komputerze.",
+                     "Source: {kind}, {date}. The file is no longer on this computer.")
 CITED_DIRS = ("wiki", "projects")
 CITED_MAX_BYTES = 5 * 1024 * 1024
 
@@ -124,22 +131,31 @@ def refs_in(text):
     return [m.group(0) for m in kr.SRC_REF_RE.finditer(text)]
 
 
-def cited(root, conf):
-    """Every reference that a text file under vault/wiki/ or vault/projects/ holds."""
-    found = set()
+def cited_by(root, conf):
+    """{reference: [repo-relative paths of the text files under vault/wiki/ or vault/projects/ that hold it]}, each
+    list sorted."""
+    found = {}
     vault = root / conf["VAULT_DIR"].strip("/")
     for name in CITED_DIRS:
         folder = vault / name
         if not folder.is_dir():
             continue
-        for full in folder.rglob("*"):
+        for full in sorted(folder.rglob("*")):
             try:
                 if not full.is_file() or full.stat().st_size > CITED_MAX_BYTES:
                     continue
-                found.update(refs_in(full.read_text(encoding="utf-8", errors="replace")))
+                refs = set(refs_in(full.read_text(encoding="utf-8", errors="replace")))
             except OSError:
                 continue
+            rel = full.relative_to(root).as_posix()
+            for ref in refs:
+                found.setdefault(ref, []).append(rel)
     return found
+
+
+def cited(root, conf):
+    """Every reference that a text file under vault/wiki/ or vault/projects/ holds."""
+    return set(cited_by(root, conf))
 
 
 def say(root, conf, ref):
@@ -147,9 +163,11 @@ def say(root, conf, ref):
     polish = gate.is_polish(conf)
     word = KIND_WORDS[kind][0 if polish else 1]
     hits = find(root, conf, ref)
+    import solo  # imported here: the top-level imports of this file are tested
+    here, away = (SAY_PERSONAL_HERE, SAY_PERSONAL_AWAY) if solo.is_personal(root) else (SAY_HERE, SAY_AWAY)
     if hits:
-        return SAY_HERE[0 if polish else 1].format(kind=word, date=date, path=hits[0])
-    return SAY_AWAY[0 if polish else 1].format(kind=word, date=date)
+        return here[0 if polish else 1].format(kind=word, date=date, path=hits[0])
+    return away[0 if polish else 1].format(kind=word, date=date)
 
 
 def run(root, argv):

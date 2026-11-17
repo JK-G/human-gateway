@@ -30,6 +30,14 @@ A `permissions` warning that names an `ask` rule means Claude Code no longer ask
 your own. Before any commit in a department repository, run hg-tool publish check, show the person the preview it
 writes, and commit only through the commit step of /hg:publish, after the person's own yes in this session.
 
-The report always ends with the node list, also when nothing is broken. Run `hg-tool nodes` and copy the third
-column of its five lines, one bullet each, in order, in the person's language: the messenger, the project platforms,
-the calendar, the agent and the backup. Copy them as they are; do not add a sentence about a session's tools.
+In a personal folder (a `mode` line that starts with `personal`) the folder is one person's own and nothing in it
+is sent. There is no `gh`, `marketplace`, `scanner`, `notify` or gate line, a missing `git` is only a warning
+(nothing there needs it today), and the `calendar` and `backup` lines are English and for you. A `mode` `ERROR`
+means the folder holds a change history hg did not make: report it first and change nothing. A `place` warning
+means the folder lies in a folder copied to a cloud service, or inside another folder with its own history: say so
+in plain words. Never mention GitHub, sending or publishing to the person here.
+
+The report always ends with the node list, also when nothing is broken: in a shared folder the messenger, the
+project platforms, the calendar, the agent and the backup; in a personal folder the calendar and the backup. Run
+`hg-tool nodes` and copy the third column of its lines, one bullet each, in order, in the person's language. Copy
+them as they are; do not add a sentence about a session's tools.

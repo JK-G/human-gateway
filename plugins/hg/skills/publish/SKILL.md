@@ -16,6 +16,17 @@ and commit only through the commit step of /hg:publish, after the person's own y
 
 Nothing enforces this rule: `git commit` and `git push` still work. It holds because you keep to it.
 
+## A personal folder
+
+First run `hg-tool mode`. When it prints `personal`, the folder is one person's own and nothing is checked,
+committed or sent from it: say the sentence below, in the person's language, and stop. Do not run any other step,
+and do not offer a way around it. This is the one place a word about sharing is said in a personal folder, and only
+because the person asked.
+
+| | Polish | English |
+|---|---|---|
+| not yet | Udostępnianie z folderu osobistego nie jest jeszcze dostępne. | Sharing from a personal folder is not available yet. |
+
 ## Steps
 
 1. Run `hg-tool publish check`, with the paths from `$ARGUMENTS` if there are any. It stages what changed, runs

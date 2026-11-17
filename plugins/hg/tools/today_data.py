@@ -4,6 +4,7 @@
 Usage: hg-tool today-data
 Dates come from the configured zone, or the local clock when the machine has no zone database.
 Env: KIT_TODAY=YYYY-MM-DD pins "today" (tests).
+In a folder with no .claude/hg.json it prints only {"mode": "none", "places": [...], "say": {"pl": ..., "en": ...}}.
 """
 import datetime
 import json
@@ -16,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate  # noqa: E402
 import kit_registry as kr  # noqa: E402
+import solo  # noqa: E402
 
 LOG_OPS = ("ingest", "query", "file_back", "supersede")
 GATE_KEYS = ("id", "title", "status", "changed", "accountable")
@@ -56,6 +58,8 @@ def recent_inbox(root, vault):
         return []
     cutoff, found = time.time() - 86400, []
     for path in sorted(folder.iterdir()):
+        if path.name.startswith("keep-"):  # hg's own working files, written and removed within one call
+            continue
         if path.is_file() and not path.name.startswith((".", "_")) and path.name != "README.md" and path.stat().st_mtime >= cutoff:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             found.append({"path": path.relative_to(root).as_posix(), "first_line": lines[0] if lines else ""})
@@ -188,16 +192,73 @@ def source_data(gates, polish):
     return found
 
 
-def collect(root):
+class Context:
+    """What the sections share: the folder, its config, the day, and the gates read once, only when a section
+    asks for them."""
+
+    def __init__(self, root, conf, day):
+        self.root, self.conf, self.day = root, conf, day
+        self._gates = None
+
+    @property
+    def gates(self):
+        if self._gates is None:
+            self._gates = gate.all_gates(self.root)
+        return self._gates
+
+
+def gates_section(ctx):
+    return [{key: g[key] for key in GATE_KEYS} for g in ctx.gates]
+
+
+def sources_section(ctx):
+    return source_data(ctx.gates, gate.is_polish(ctx.conf))
+
+
+def approvals_section(ctx):
+    since = (ctx.day - datetime.timedelta(days=AGENT_APPROVAL_DAYS)).isoformat()
+    return [dict(a, line=approval_line(a, gate.is_polish(ctx.conf))) for a in gate.agent_approvals(ctx.root, ctx.gates, since)]
+
+
+def unpublished_section(ctx):
+    return unpublished(ctx.root, ctx.conf)
+
+
+KEPT_EMPTY = {"count_7d": 0, "pending": 0, "pending_line": "", "latest": []}
+
+
+def kept_section(ctx):
+    """What was kept and which kept sources have no page yet (hg-tool keep --list). One unreadable source never
+    fails the section: keep.list_rows catches per row, and anything else gives the empty section."""
+    import keep  # imported here: keep imports this module for inline()
+    try:
+        return keep.kept_summary(ctx.root, ctx.conf, ctx.day)
+    except Exception:
+        return dict(KEPT_EMPTY)
+
+
+# (key, function(ctx) -> value, the modes that have the key). A personal folder leaves a key out, not empty: a model
+# that reads "gates": [] tends to say there are no gates. The next pieces of work add rows here.
+SECTIONS = (
+    ("gates", gates_section, ("shared",)),
+    ("sources", sources_section, ("shared",)),
+    ("agent_approvals", approvals_section, ("shared",)),
+    ("unpublished", unpublished_section, ("shared",)),
+    ("kept", kept_section, ("personal", "shared")),
+)
+
+
+def collect(root, skip=()):
+    """skip: keys of SECTIONS the caller does not need (the shared dashboard does not show kept)."""
     conf = kr.load_conf(root)
+    mode = solo.mode(root)
     vault = conf["VAULT_DIR"].rstrip("/")
     pinned = os.environ.get("KIT_TODAY")
     day = datetime.date.fromisoformat(pinned) if pinned else kr.local_now(conf["TIMEZONE"]).date()
     today = day.isoformat()
     workdays = workday_numbers(conf["WORKDAYS"])
-    gates = gate.all_gates(root)
-    since = (day - datetime.timedelta(days=AGENT_APPROVAL_DAYS)).isoformat()
-    return {
+    data = {
+        "mode": mode,
         "date": today,
         "weekday": day.strftime("%A"),
         "weekday_number": day.isoweekday(),
@@ -207,13 +268,13 @@ def collect(root):
         "inbox_recent": recent_inbox(root, vault),
         "last_journal": last_journal(root, conf, today),
         "log": log_summary(root, conf, today),
-        "gates": [{key: g[key] for key in GATE_KEYS} for g in gates],
-        "sources": source_data(gates, gate.is_polish(conf)),
-        "agent_approvals": [dict(a, line=approval_line(a, gate.is_polish(conf)))
-                            for a in gate.agent_approvals(root, gates, since)],
         "open_questions": open_questions(root, vault),
-        "unpublished": unpublished(root, conf),
     }
+    ctx = Context(root, conf, day)
+    for key, section, modes in SECTIONS:
+        if mode in modes and key not in skip:
+            data[key] = section(ctx)
+    return data
 
 
 def unpublished(root, conf):
@@ -228,7 +289,11 @@ def unpublished(root, conf):
 
 def main():
     kr.stdio_utf8()
-    print(json.dumps(collect(kr.kit_root()), ensure_ascii=False, indent=2))
+    root = kr.kit_root()
+    if not root.joinpath(*kr.CONFIG_PARTS).is_file():  # not set up: only where the notes are, never a briefing
+        print(json.dumps(solo.not_set_up(root), ensure_ascii=False, indent=2))
+        return 0
+    print(json.dumps(collect(root), ensure_ascii=False, indent=2))
     return 0
 
 

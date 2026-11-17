@@ -9,6 +9,7 @@ Usage:
 
 Five nodes, always in this order: messenger, projects, calendar, agent, backup. A state is empty, declared,
 plugged, recorded, session or unavailable. Declarations live under "nodes" in .claude/hg.json, which is tracked.
+A personal folder (solo.py) lists two: calendar and backup, the backup in words that fit one person's folder.
 
 What the tool knows, by kind of fact:
   declared   someone wrote it into .claude/hg.json
@@ -340,18 +341,32 @@ def projects_node(root, data, polish):
     return node
 
 
-def collect(root, online=True, polish=None):
-    """The five nodes, in order, as the dicts 'nodes --json' prints. polish None: the workspace's content language."""
+PERSONAL_BACKUP = {
+    True: "Kopia plików źródłowych: hg jej nie robi. Bez własnej kopii utrata dysku oznacza ich utratę.",
+    False: "Backup of source files: hg makes none. Without a copy of your own, losing the disk means losing them.",
+}
+
+
+def collect(root, online=True, polish=None, personal=None):
+    """The five nodes, in order, as the dicts 'nodes --json' prints. polish None: the workspace's content language.
+    A personal folder (personal None: read from hg.json) has two: the calendar, and the backup in its own words."""
     root = kr.kit_root(root)
     data = kr.raw_config(root)
     if polish is None:
         polish = gate.is_polish(kr.load_conf(root))
+    if personal is None:
+        import solo  # imported here: the top-level imports of this file are tested
+        personal = solo.mode_of(data) == "personal"
     t = TEXT[polish]
+    calendar = {"id": "calendar", "state": "session", "available": True, "line": t["calendar"],
+                "session_yes": t["calendar_yes"], "session_no": t["calendar_no"], "facts": []}
+    if personal:
+        return [calendar,
+                {"id": "backup", "state": "unavailable", "available": False, "line": PERSONAL_BACKUP[polish], "facts": []}]
     return [
         messenger_node(root, data, polish, online),
         projects_node(root, data, polish),
-        {"id": "calendar", "state": "session", "available": True, "line": t["calendar"],
-         "session_yes": t["calendar_yes"], "session_no": t["calendar_no"], "facts": []},
+        calendar,
         {"id": "agent", "state": "unavailable", "available": False, "line": t["agent"], "facts": []},
         {"id": "backup", "state": "unavailable", "available": False, "line": t["backup"], "facts": []},
     ]
@@ -426,7 +441,7 @@ def declare(root, args):
     else:
         data.pop("nodes", None)
     gate.write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    node = next(n for n in collect(root, online=False) if n["id"] == what)
+    node = next(n for n in collect(root, online=False, personal=False) if n["id"] == what)
     print(line_of(node))
     return 0
 

@@ -6,7 +6,7 @@ Wtyczka niczego nie instaluje i niczego nie zmienia na komputerze. Nie łączy s
 
 Jest też druga, nieobowiązkowa wtyczka, hg-probe-panel. Sprawdza tylko jedno: czy obok czatu może się pokazać mała ramka. Dodajesz ją dopiero po pierwszym raporcie (krok 4). Jest osobno: gdy aplikacja przyjmie hg-probe, a tej jednej nie, będzie wiadomo, że kłopot dotyczy ramki, a nie wtyczek w ogóle. Ona też pisze tylko w Twoim folderze, jeden plik `.hg-probe-panel`.
 
-Tej instrukcji nie dało się jeszcze przejść na prawdziwym komputerze z aplikacją. Kroki oznaczone "może wyglądać inaczej" pochodzą z dokumentacji Claude'a. Jeśli coś wygląda inaczej, zrób zrzut ekranu i wyślij go razem z raportem.
+Tę instrukcję przeszła dotąd jedna osoba, w zakładce Code na Windowsie. Obie wtyczki dały się dodać, raport zapisał się w folderze, a ramka pokazała się obok czatu. Drogi przez Cowork nikt jeszcze nie przeszedł. Kroki oznaczone "może wyglądać inaczej" pochodzą z dokumentacji Claude'a i nie zostały potwierdzone. Jeśli coś wygląda inaczej, zrób zrzut ekranu i wyślij go razem z raportem.
 
 ## 1. Przygotuj folder
 

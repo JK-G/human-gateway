@@ -26,6 +26,8 @@ Use repo-relative paths only (`vault/raw/...`), never absolute ones.
 
 ## Steps
 
+0. Run `hg-tool mode`. When it prints `personal`, the folder is one person's own: nothing in it is sent, step 5 is
+   skipped and you say nothing about sending or publishing.
 1. Parse the arguments. Reject an unknown flag, or `--apply` without a hash, with the usage table.
 2. For `--list-plans`: list `.gateway/plans/*.json` (skip `*.errors.json`) with their `source`,
    age and remaining TTL; delete plans older than 24 hours and say so. Stop.
@@ -35,7 +37,7 @@ Use repo-relative paths only (`vault/raw/...`), never absolute ones.
 4. Show the librarian's result to the user: the summary table, the plan hash, the log line it
    appended (or the reason it stopped), and the path of the left-out report it stored.
 5. When pages were written (not for `--dry-run` or `--list-plans`), start `hg:publish` with the Skill tool, unless
-   the arguments hold `--no-publish`. The pages are on this computer only until then. Before any commit in a
+   the arguments hold `--no-publish` or the folder is personal (step 0). The pages are on this computer only until then. Before any commit in a
    department repository, run hg-tool publish check, show the person the preview it writes, and commit only
    through the commit step of /hg:publish, after the person's own yes in this session.
 
@@ -47,7 +49,7 @@ Use repo-relative paths only (`vault/raw/...`), never absolute ones.
    reason. Present all rows as one table and ask for one approval.
 3. On approval, run `/hg:import-source <file> --project <p> --kind <kind>` per approved row (it wraps the
    frontmatter and moves the file into `vault/raw/`), then ingest each moved file. Start `hg:publish` once, after
-   the last one.
+   the last one, except in a personal folder.
 4. Rows below 0.6 confidence stay in the inbox and are listed as "needs a human".
 
 ## Binary, large and PII-bearing sources
@@ -55,7 +57,8 @@ Use repo-relative paths only (`vault/raw/...`), never absolute ones.
 PDF, office files, images, anything over 1 MB, and any source whose raw frontmatter says `pii: true` become a
 `source-summary` stub only (`extraction: unextracted`), never extracted pages. Extraction of a binary
 source is a later, explicit step; a PII stub stays unextracted for good. A source that only names people or holds
-their contact details is ingested like any other: people become roles, and no name or contact detail reaches a page.
+their contact details is ingested like any other: the cleaning rules for this folder's mode say what of them reaches
+a page (in a shared folder, people become roles and no name or contact detail does).
 
 ## Plan cache
 

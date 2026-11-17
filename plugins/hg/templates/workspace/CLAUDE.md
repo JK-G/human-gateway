@@ -19,6 +19,7 @@ hooks and tools come from the plugin. Write to people in {{CONTENT_LANGUAGE}}.
 | Command | Purpose |
 |---|---|
 | `/hg:init` | Build the context map from `intake/` and pasted links |
+| say "zapisz", or `/hg:keep` | Keep a note, a link or a file in one step |
 | `/hg:today`, `/hg:dayend` | Start and end of the day |
 | `/hg:import-source` | Bring an outside file into `vault/raw/` on this computer |
 | `/hg:ingest` | Turn a raw source into wiki pages through a validated change plan |

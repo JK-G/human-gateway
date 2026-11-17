@@ -23,6 +23,9 @@
 # cluster holding x or X; git stash with --all, -a or a short cluster holding a; git mv into a private folder;
 # and git update-index, always.
 #
+# In a personal folder (HG_MODE=personal) nothing is committed or sent: a git command acting inside the folder
+# whose subcommand is commit, push, pull, merge, rebase, cherry-pick, am, revert or remote is blocked.
+#
 # A line that passes a mark to hg-tool gate observe (text from an outside system) must be exactly the
 # command the tool printed, alone, with the value in single quotes and only safe characters in it.
 #
@@ -53,7 +56,7 @@ if [ "${1:-}" = "--cmd" ]; then          # recursive mode for sh -c / bash -c bo
   CMD="$(cat)"; CWD="${KIT_GUARD_CWD:-$ROOT_L}"
 else
   eval "$(${HG_PYTHON:-python3} -S "$TOOLS/hook_env.py" 2>/dev/null)"
-  export FORBIDDEN_WRITE_PATHS VAULT_DIR ROOT_NATIVE PRIVATE_PATHS
+  export FORBIDDEN_WRITE_PATHS VAULT_DIR ROOT_NATIVE PRIVATE_PATHS HG_MODE
   CWD="${CWD:-$ROOT_L}"
 fi
 [ -z "${CMD:-}" ] && exit 0
@@ -253,6 +256,12 @@ analyze() {
       if case "$GIT_MUT" in *" $sub "*) true;; *) false;; esac && p="$(match "$r")"; then block "git $sub" "$r" "$p"; fi
       [ -n "$gdir" ] && { local old="$CWD"; CWD="$ROOT_L/$r"; }
       if [ -n "$r" ]; then   # git acts inside this workspace: forms that leak or destroy a person's own files
+        if [ "${HG_MODE:-}" = personal ]; then
+          case "$sub" in
+            commit|push|pull|merge|rebase|cherry-pick|am|revert|remote)
+              gblock "in a personal folder git commands that record or send changes are not run. Tell the person what you needed.";;
+          esac
+        fi
         case "$sub" in
           add|clean|stash)
             for x in ${rest[@]+"${rest[@]}"}; do

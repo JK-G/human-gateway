@@ -14,6 +14,15 @@ tool as they wrote them.
 Put every free-text value in single quotes and write a `'` inside it as `'\''`, so the shell leaves it
 alone.
 
+## A personal folder
+
+First run `hg-tool mode`. When it prints `personal`, say this sentence in the person's language and stop. The tool
+is not run.
+
+| | Polish | English |
+|---|---|---|
+| G1 | Zatwierdzenia należą do udostępniania, a udostępnianie z folderu osobistego nie jest jeszcze dostępne. | Approvals belong to sharing, and sharing from a personal folder is not available yet. |
+
 ## No arguments
 
 Run `hg-tool gate list` and show each gate with its status and what changed.

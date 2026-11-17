@@ -414,10 +414,25 @@ def is_gate_file(rel):
 
 # ---- the workspace state ----------------------------------------------------------------------------
 
-def workspace(argv_root=None):
+PERSONAL_REFUSAL = ("this folder is personal: nothing is committed or sent from it. Sharing from a personal folder "
+                    "is not available yet.")
+WAS_PERSONAL_REFUSAL = ("this folder was set up as personal (.gateway/personal), so its pages name people and were never "
+                        "cleaned for anyone else. Its mode key says otherwise now, but sharing from a personal folder is "
+                        "not available yet.")
+NEEDS_REPO = ("check", "commit", "withdraw")  # leftout reads and writes files only
+
+
+def workspace(argv_root=None, command=None):
     root = kr.kit_root(argv_root).resolve()
     if not root.joinpath(*kr.CONFIG_PARTS).is_file():
         raise gate.Usage("this folder is not a department workspace (.claude/hg.json is missing). Run /hg:setup.")
+    if command is not None and command not in NEEDS_REPO:
+        return root
+    import solo  # imported here: the top-level imports of this file are tested
+    if command is not None and solo.is_personal(root):
+        raise gate.Usage(PERSONAL_REFUSAL)
+    if command is not None and solo.was_personal(root):
+        raise gate.Usage(WAS_PERSONAL_REFUSAL)
     code, out, _ = git_text(root, "rev-parse", "--show-toplevel")
     if code != 0:
         raise gate.Usage("this folder is not a git repository. Run /hg:setup.")
@@ -521,7 +536,11 @@ def ahead_count(root):
 
 
 def unpublished(root, conf=None):
-    """{count, line} for /hg:today: changes git lists that are not background records, plus commits no remote has."""
+    """{count, line} for /hg:today: changes git lists that are not background records, plus commits no remote has.
+    A personal folder sends nothing, so it has nothing unpublished and git is not asked."""
+    import solo  # imported here: the top-level imports of this file are tested
+    if solo.is_personal(root):
+        return {"count": 0, "line": ""}
     conf = conf or kr.load_conf(root)
     out = run_git(root, "status", "--porcelain", "-z", "--untracked-files=all", "--no-renames")
     count = 0
@@ -1361,18 +1380,19 @@ def main(argv):
     if not argv or argv[0] in ("-h", "--help") or argv[0] not in COMMANDS:
         print(__doc__, file=sys.stderr)
         return 2
+    prefix = "hg" if os.environ.get("HG_NEUTRAL") else "publish"  # hg-tool leftout: a name with no sharing word
     try:
-        root = workspace()
+        root = workspace(command=argv[0])
         conf = kr.load_conf(root)
         return COMMANDS[argv[0]](root, conf, list(argv[1:]))
     except gate.Usage as exc:
-        print("publish: %s" % exc, file=sys.stderr)
+        print("%s: %s" % (prefix, exc), file=sys.stderr)
         return 2
     except gate.Refused as exc:
-        print("publish: %s" % exc, file=sys.stderr)
+        print("%s: %s" % (prefix, exc), file=sys.stderr)
         return 1
     except kr.RegistryError as exc:
-        print("publish: %s" % exc, file=sys.stderr)
+        print("%s: %s" % (prefix, exc), file=sys.stderr)
         return 2
 
 
